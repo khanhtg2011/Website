@@ -26,9 +26,9 @@ $_SESSION['last_activity'] = time();
 
 // Cấu hình MySQL
 $DB_HOST = "localhost"; // Thay bằng hostname từ hosting (ví dụ: mysqlXX.000webhost.com)
-$DB_USER = "u324425198_khanhtg";
-$DB_PASS = "WT/GiaK@123";
-$DB_NAME = "u324425198_Photos";
+$DB_USER = "";
+$DB_PASS = "";
+$DB_NAME = "";
 
 // Kết nối MySQL với debug
 $conn = null;
