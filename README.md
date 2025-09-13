@@ -14,10 +14,10 @@
 
 ### Step 2: Database Setup
 Your database is already configured in `config.php`:
-- **Host**: 217.21.74.1
-- **Database**: u324425198_Photos
-- **Username**: u324425198_khanhtg
-- **Password**: WT/GiaK@123
+- **Host**: Your ip MySQL 
+- **Database**: your database
+- **Username**: Usernam
+- **Password**: Password 
 
 ### Step 3: Upload Images
 1. **Create albums** by placing images in subfolders within `uploads/`
