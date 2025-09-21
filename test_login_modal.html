@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Login Modal</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Login Modal</h1>
+    <p>Click the button below to test if the login modal function works:</p>
+    <button onclick="showLoginModal()">Test Login Modal</button>
+
+    <!-- Admin Login Modal -->
+    <div id="adminLoginModal" class="modal">
+        <div class="modal-content">
+            <h2>Admin Login</h2>
+            <p>This modal should appear when you click the button!</p>
+            <button onclick="hideLoginModal()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        // Admin Login Modal Functions - Make them globally accessible
+        function showLoginModal() {
+            const modal = document.getElementById('adminLoginModal');
+            if (!modal) return;
+
+            // Show modal
+            modal.style.display = 'flex';
+        }
+
+        function hideLoginModal() {
+            const modal = document.getElementById('adminLoginModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        console.log('Login modal functions loaded successfully!');
+        console.log('showLoginModal function:', typeof showLoginModal);
+    </script>
+</body>
+</html>

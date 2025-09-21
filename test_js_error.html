@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test JavaScript closest() Fix</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-area { border: 1px solid #ccc; padding: 20px; margin: 10px 0; }
+        input, textarea, select, button { margin: 5px; }
+        .result { margin-top: 20px; padding: 10px; background: #f0f0f0; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Testing JavaScript closest() Error Fix</h1>
+
+    <div class="test-area">
+        <h3>Test Area - Try selecting text here</h3>
+        <p>This is some text that you can try to select. The JavaScript should prevent text selection outside of interactive elements.</p>
+
+        <div>
+            <label>Input field (should allow selection):</label>
+            <input type="text" value="You can select text here" id="testInput">
+        </div>
+
+        <div>
+            <label>Textarea (should allow selection):</label>
+            <textarea id="testTextarea">You can select text here too</textarea>
+        </div>
+
+        <div>
+            <label>Select dropdown:</label>
+            <select id="testSelect">
+                <option>Option 1</option>
+                <option>Option 2</option>
+            </select>
+        </div>
+
+        <button id="testButton">Button (clickable)</button>
+    </div>
+
+    <div class="result" id="result">
+        <h3>Test Results:</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        const logElement = document.getElementById('log');
+        const interactiveSelector = 'input, textarea, select, button, a, [contenteditable], .allow-select';
+
+        function log(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = isError ? 'error' : 'success';
+            div.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            logElement.appendChild(div);
+        }
+
+        // Test the fixed event listeners
+        try {
+            // Prevent the browser starting a text selection
+            document.addEventListener('selectstart', function(e) {
+                log('selectstart event fired on: ' + (e.target ? e.target.tagName : 'unknown'));
+                if (e.target && e.target.closest && e.target.closest(interactiveSelector)) {
+                    log('Allowing selection in interactive element');
+                    return; // allow in inputs etc
+                }
+                log('Preventing text selection');
+                e.preventDefault();
+            }, { passive: false });
+
+            // Prevent image/file dragging start
+            document.addEventListener('dragstart', function(e) {
+                log('dragstart event fired on: ' + (e.target ? e.target.tagName : 'unknown'));
+                if (e.target && e.target.closest && e.target.closest(interactiveSelector)) {
+                    log('Allowing drag in interactive element');
+                    return;
+                }
+                log('Preventing drag');
+                e.preventDefault();
+            }, { passive: false });
+
+            // Prevent double-click selection: block double click default behaviour
+            document.addEventListener('dblclick', function(e) {
+                log('dblclick event fired on: ' + (e.target ? e.target.tagName : 'unknown'));
+                if (e.target && e.target.closest && e.target.closest(interactiveSelector)) {
+                    log('Allowing double-click in interactive element');
+                    return;
+                }
+                log('Preventing double-click selection');
+                e.preventDefault();
+            }, { passive: false });
+
+            // Block multi-click (click-and-hold producing selection) by preventing mousedown when detail>1
+            document.addEventListener('mousedown', function(e) {
+                log('mousedown event fired on: ' + (e.target ? e.target.tagName : 'unknown'));
+                if (e.detail > 1 && e.target && e.target.closest && !e.target.closest(interactiveSelector)) {
+                    log('Preventing multi-click selection');
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            log('✅ All event listeners attached successfully - no errors!');
+
+        } catch (error) {
+            log('❌ Error setting up event listeners: ' + error.message, true);
+        }
+
+        // Test with different types of targets
+        document.addEventListener('click', function(e) {
+            log('Click detected on: ' + (e.target ? e.target.tagName : 'unknown') +
+                ' (nodeType: ' + (e.target ? e.target.nodeType : 'unknown') + ')');
+        });
+    </script>
+</body>
+</html>

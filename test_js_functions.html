@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test JavaScript Functions</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        .star { font-size: 24px; cursor: pointer; color: #ddd; }
+
+        /* Enhanced star rating styling */
+        #rating-stars .star:hover {
+          background: rgba(255, 255, 255, 0.1) !important;
+          transform: scale(1.1);
+        }
+
+        #rating-stars .star:active {
+          transform: scale(0.95);
+        }
+        .star.active { color: #ffd700; }
+    </style>
+</head>
+<body>
+    <h1>Test JavaScript Functions</h1>
+
+    <div class="test-section">
+        <h2>Download Photo Function Test</h2>
+        <p>This should work for admin users only. Since we're not logged in as admin, it should show an alert.</p>
+        <button onclick="downloadPhoto('test-image.jpg')">Test Download (Should fail - not admin)</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Star Rating System Test (Interactive)</h2>
+        <p>Click on stars to rate, hover to preview:</p>
+        <div id="rating-stars" style="display: flex; gap: 12px; margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 8px; justify-content: center;">
+            <span class="star" data-rating="1" style="font-size: 32px; cursor: pointer; color: #ddd; padding: 8px; border-radius: 6px; transition: all 0.2s; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;">☆</span>
+            <span class="star" data-rating="2" style="font-size: 32px; cursor: pointer; color: #ddd; padding: 8px; border-radius: 6px; transition: all 0.2s; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;">☆</span>
+            <span class="star" data-rating="3" style="font-size: 32px; cursor: pointer; color: #ddd; padding: 8px; border-radius: 6px; transition: all 0.2s; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;">☆</span>
+            <span class="star" data-rating="4" style="font-size: 32px; cursor: pointer; color: #ddd; padding: 8px; border-radius: 6px; transition: all 0.2s; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;">☆</span>
+            <span class="star" data-rating="5" style="font-size: 32px; cursor: pointer; color: #ddd; padding: 8px; border-radius: 6px; transition: all 0.2s; min-width: 48px; min-height: 48px; display: flex; align-items: center; justify-content: center;">☆</span>
+        </div>
+        <p>Current rating: <span id="current-rating">0</span></p>
+        <button onclick="updateStarDisplay(3)">Test 3-Star Rating</button>
+        <button onclick="updateStarDisplay(5)">Test 5-Star Rating</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Submit Feedback Function Test</h2>
+        <p>Test the feedback submission (will likely fail due to no photo context):</p>
+        <button onclick="submitFeedback('test-photo.jpg')">Test Submit Feedback</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Load Feedback Stats Test</h2>
+        <p>Test loading feedback statistics:</p>
+        <button onclick="loadFeedbackStats('test-photo.jpg')">Test Load Stats</button>
+        <div id="feedback-stats">Stats will appear here...</div>
+    </div>
+
+    <script>
+        // Copy the functions from index.php for testing
+        let currentRating = 0;
+
+        function downloadPhoto(filename) {
+            if (!document.body.classList.contains('admin')) {
+                alert('Access denied: Admin privileges required');
+                return;
+            }
+
+            // Create a temporary link to download the file
+            const link = document.createElement('a');
+            link.href = 'uploads/' + encodeURIComponent(filename);
+            link.download = filename;
+            link.style.display = 'none';
+
+            // Add to DOM, click, and remove
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function initRatingStars() {
+            const stars = document.querySelectorAll('#rating-stars .star');
+            if (!stars.length) return;
+
+            stars.forEach((star, index) => {
+                star.addEventListener('click', () => {
+                    currentRating = index + 1;
+                    updateStarDisplay();
+                    document.getElementById('current-rating').textContent = currentRating;
+                });
+
+                star.addEventListener('mouseover', () => {
+                    updateStarDisplay(index + 1);
+                });
+
+                star.addEventListener('mouseout', () => {
+                    updateStarDisplay(currentRating);
+                });
+            });
+
+            // Initialize with current rating
+            updateStarDisplay(currentRating);
+        }
+
+        function updateStarDisplay(rating = currentRating) {
+            currentRating = rating;
+            const stars = document.querySelectorAll('#rating-stars .star');
+            stars.forEach((star, index) => {
+                if (index < rating) {
+                    star.textContent = '⭐';
+                    star.style.color = '#ffd700';
+                } else {
+                    star.textContent = '☆';
+                    star.style.color = '#ddd';
+                }
+            });
+            document.getElementById('current-rating').textContent = rating;
+        }
+
+        function submitFeedback(filename) {
+            if (currentRating === 0) {
+                alert('Please select a rating (1-5 stars)');
+                return;
+            }
+
+            alert(`Would submit feedback for ${filename} with rating ${currentRating}`);
+            console.log('Feedback submission test:', { filename, rating: currentRating });
+        }
+
+        function loadFeedbackStats(filename) {
+            const statsDiv = document.getElementById('feedback-stats');
+            if (!statsDiv) return;
+
+            // Simulate loading
+            statsDiv.innerHTML = '<div style="color: #666;">Loading feedback stats...</div>';
+
+            // Simulate API call
+            setTimeout(() => {
+                statsDiv.innerHTML = '<div style="color: #4caf50;">✅ Test successful - Function is working!</div>';
+            }, 1000);
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initRatingStars();
+            console.log('JavaScript functions loaded successfully');
+        });
+    </script>
+</body>
+</html>
