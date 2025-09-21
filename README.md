@@ -67,7 +67,7 @@ A modern, secure, and feature-rich photo gallery web application with admin cont
    ```
 
 5. **Access the Gallery**:
-   - Open `http://localhost:8000` in your browser
+   - Open `https://Your-Domain` in your browser
    - Login as admin using your configured credentials
 
 ## 📖 User Guide
