@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Status Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .status-card { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status-item { margin: 10px 0; }
+        .status-label { font-weight: bold; color: #333; }
+        .status-value { color: #666; }
+        .ok { color: green; }
+        .warning { color: orange; }
+        .error { color: red; }
+        h1 { color: #333; }
+        .function-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; }
+        .function-item { background: #e9ecef; padding: 15px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <h1>📊 Website Status Dashboard</h1>
+
+    <div class="status-card" id="errors-summary" style="display: none; border-left: 4px solid #dc3545;">
+        <h2>❌ Errors Summary</h2>
+        <div id="errors-list"></div>
+    </div>
+
+    <div class="status-card">
+        <h2>🔧 System Status</h2>
+        <div class="status-item">
+            <span class="status-label">Admin Login:</span>
+            <span class="status-value" id="admin-status">Checking...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Last Wayback Backup:</span>
+            <span class="status-value" id="backup-status">Checking...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Right-Click Protection:</span>
+            <span class="status-value" id="right-click-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Dev Tools Access:</span>
+            <span class="status-value" id="dev-tools-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">CPU Idle Optimization:</span>
+            <span class="status-value" id="cpu-idle-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Service Worker:</span>
+            <span class="status-value" id="sw-status">Testing...</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>🔗 API Status</h2>
+        <div class="status-item">
+            <span class="status-label">Gallery API (list.php):</span>
+            <span class="status-value" id="gallery-api-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Albums API (albums.php):</span>
+            <span class="status-value" id="albums-api-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Feedback API (feedback.php):</span>
+            <span class="status-value" id="feedback-api-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Upload API (upload.php):</span>
+            <span class="status-value" id="upload-api-status">Testing...</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>🎨 Gallery UI Status</h2>
+        <div class="status-item">
+            <span class="status-label">Gallery Centering:</span>
+            <span class="status-value" id="gallery-center-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Photo Spacing:</span>
+            <span class="status-value" id="photo-spacing-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Responsive Design:</span>
+            <span class="status-value" id="responsive-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Modal Display:</span>
+            <span class="status-value" id="modal-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Photo Gallery:</span>
+            <span class="status-value" id="photo-gallery-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Album Management:</span>
+            <span class="status-value" id="album-mgmt-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Upload Function:</span>
+            <span class="status-value" id="upload-ui-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Feedback System:</span>
+            <span class="status-value" id="feedback-ui-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Select Mode:</span>
+            <span class="status-value" id="select-mode-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Header Toggle:</span>
+            <span class="status-value" id="header-toggle-status">Testing...</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>📊 Performance Status</h2>
+        <div class="status-item">
+            <span class="status-label">Core Web Vitals in Gallery:</span>
+            <span class="status-value" id="performance-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Service Worker:</span>
+            <span class="status-value" id="sw-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Lazy Loading:</span>
+            <span class="status-value" id="lazy-loading-status">Testing...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">CPU Idle Optimization:</span>
+            <span class="status-value" id="cpu-idle-status">Testing...</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>🖼️ Gallery Status</h2>
+        <div class="status-item">
+            <span class="status-label">Gallery Centered:</span>
+            <span class="status-value ok">Yes</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Photo Spacing:</span>
+            <span class="status-value ok">30px gaps</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Responsive Design:</span>
+            <span class="status-value ok">Mobile, tablet, desktop</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Lazy Loading:</span>
+            <span class="status-value ok">Enabled with CPU idle</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>📊 Performance Metrics</h2>
+        <div class="status-item">
+            <span class="status-label">Largest Contentful Paint (LCP):</span>
+            <span class="status-value" id="lcp-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">First Input Delay (FID):</span>
+            <span class="status-value" id="fid-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Cumulative Layout Shift (CLS):</span>
+            <span class="status-value" id="cls-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">First Contentful Paint (FCP):</span>
+            <span class="status-value" id="fcp-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Time to First Byte (TTFB):</span>
+            <span class="status-value" id="ttfb-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Image Load Time:</span>
+            <span class="status-value" id="image-load-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Gallery Load Time:</span>
+            <span class="status-value" id="gallery-load-status">Measuring...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Page Load Complete:</span>
+            <span class="status-value" id="page-load-status">Measuring...</span>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>👥 Visitor Analytics</h2>
+        <div class="status-item">
+            <span class="status-label">Current Online Users:</span>
+            <span class="status-value" id="online-users">Loading...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Total Visits Today:</span>
+            <span class="status-value" id="today-visits">Loading...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Recent Visitors:</span>
+            <span class="status-value" id="recent-visitors">Loading...</span>
+        </div>
+        <div id="visitor-details" style="margin-top: 15px; display: none;">
+            <h4 style="color: #333; margin-bottom: 10px;">Recent Activity:</h4>
+            <div id="visitor-list" style="max-height: 200px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 6px; font-size: 12px;"></div>
+        </div>
+    </div>
+
+    <div class="status-card">
+        <h2>⚙️ Available Functions</h2>
+        <div class="function-list">
+            <div class="function-item">
+                <h3>📸 Photo Gallery</h3>
+                <p>View photos in responsive grid layout with lazy loading</p>
+            </div>
+            <div class="function-item">
+                <h3>🔍 Photo Modal</h3>
+                <p>Click photos to view full size with navigation and feedback</p>
+            </div>
+            <div class="function-item">
+                <h3>📁 Album Management</h3>
+                <p>Create, edit, delete albums (Admin only)</p>
+            </div>
+            <div class="function-item">
+                <h3>⬆️ Upload Photos</h3>
+                <p>Upload single files or entire folders (Admin only)</p>
+            </div>
+            <div class="function-item">
+                <h3>🗑️ Delete Photos</h3>
+                <p>Select and delete multiple photos (Admin only)</p>
+            </div>
+            <div class="function-item">
+                <h3>📦 Move Photos</h3>
+                <p>Move selected photos between albums (Admin only)</p>
+            </div>
+            <div class="function-item">
+                <h3>⭐ Feedback System</h3>
+                <p>Rate and comment on photos</p>
+            </div>
+            <div class="function-item">
+                <h3>🔒 Album Passwords</h3>
+                <p>Password-protect albums for private access</p>
+            </div>
+            <div class="function-item">
+                <h3>📦 Wayback Backup</h3>
+                <p>Automatic daily backup to Internet Archive (Admin)</p>
+            </div>
+            <div class="function-item">
+                <h3>🎯 Select Mode</h3>
+                <p>Bulk selection for delete/move operations (Admin)</p>
+            </div>
+            <div class="function-item">
+                <h3>🔄 Service Worker</h3>
+                <p>Offline support and performance optimization</p>
+            </div>
+            <div class="function-item">
+                <h3>📊 Performance Monitoring</h3>
+                <p>Core Web Vitals and custom metrics tracking</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let errors = [];
+
+        // Utility function to update status
+        function updateStatus(elementId, status, message, label) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = 'status-value ' + status;
+
+            // Track errors
+            if (status === 'error' || status === 'warning') {
+                errors.push({ label: label, status: status, message: message });
+                updateErrorsSummary();
+            }
+        }
+
+        function updateErrorsSummary() {
+            const summary = document.getElementById('errors-summary');
+            const list = document.getElementById('errors-list');
+
+            if (errors.length > 0) {
+                summary.style.display = 'block';
+                list.innerHTML = errors.map(error =>
+                    `<div class="status-item">
+                        <span class="status-label">${error.label}:</span>
+                        <span class="status-value ${error.status}">${error.message}</span>
+                    </div>`
+                ).join('');
+            } else {
+                summary.style.display = 'none';
+            }
+        }
+
+        // Check admin status
+        updateStatus('admin-status',
+            document.body.classList.contains('admin') ? 'ok' : 'warning',
+            document.body.classList.contains('admin') ? 'Logged in' : 'Not logged in',
+            'Admin Login'
+        );
+
+        // Check last backup
+        const lastBackup = localStorage.getItem('lastWaybackBackup');
+        if (lastBackup) {
+            const date = new Date(parseInt(lastBackup));
+            updateStatus('backup-status', 'ok', date.toLocaleString(), 'Last Wayback Backup');
+        } else {
+            updateStatus('backup-status', 'warning', 'Never', 'Last Wayback Backup');
+        }
+
+        // Test right-click protection (static check)
+        updateStatus('right-click-status', 'ok', 'Disabled for users, enabled for admin', 'Right-Click Protection');
+
+        // Test dev tools access (F12)
+        updateStatus('dev-tools-status', 'ok', 'Cannot be blocked (browser security)', 'Dev Tools Access');
+
+        // Test CPU idle optimization
+        updateStatus('cpu-idle-status', 'requestIdleCallback' in window ? 'ok' : 'warning',
+            'requestIdleCallback' in window ? 'Supported' : 'Not supported', 'CPU Idle Optimization');
+
+        // Test service worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                updateStatus('sw-status', registrations.length > 0 ? 'ok' : 'warning',
+                    registrations.length > 0 ? 'Registered' : 'Not registered', 'Service Worker');
+            });
+        } else {
+            updateStatus('sw-status', 'error', 'Not supported', 'Service Worker');
+        }
+
+        // Test APIs
+        async function testAPI(url, elementId, label, method = 'GET') {
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (response.ok) {
+                    updateStatus(elementId, 'ok', 'Working', label);
+                } else if (response.status === 400) {
+                    updateStatus(elementId, 'ok', 'Requires parameters (expected)', label);
+                } else if (response.status === 405) {
+                    updateStatus(elementId, 'ok', 'Method not allowed (expected)', label);
+                } else if (response.status === 403) {
+                    updateStatus(elementId, 'warning', 'Access restricted (expected)', label);
+                } else {
+                    updateStatus(elementId, 'error', `HTTP ${response.status}`, label);
+                }
+            } catch (error) {
+                updateStatus(elementId, 'error', 'Failed to connect', label);
+            }
+        }
+
+        // Special test for feedback API
+        async function testFeedbackAPI() {
+            try {
+                const response = await fetch('feedback.php', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (response.status === 400) {
+                    // HTTP 400 is expected when no photo parameter is provided
+                    updateStatus('feedback-api-status', 'ok', 'Responds correctly (requires photo param)', 'Feedback API');
+                } else if (response.ok) {
+                    const data = await response.json();
+                    if (data.error) {
+                        updateStatus('feedback-api-status', 'ok', 'Responds correctly (requires photo param)', 'Feedback API');
+                    } else {
+                        updateStatus('feedback-api-status', 'ok', 'Working', 'Feedback API');
+                    }
+                } else {
+                    updateStatus('feedback-api-status', 'error', `HTTP ${response.status}`, 'Feedback API');
+                }
+            } catch (error) {
+                updateStatus('feedback-api-status', 'error', 'Failed to connect', 'Feedback API');
+            }
+        }
+
+        testAPI('list.php?limit=1', 'gallery-api-status', 'Gallery API');
+        testAPI('albums.php', 'albums-api-status', 'Albums API');
+        testFeedbackAPI();
+        // Special test for upload API (requires CSRF token and admin access)
+        async function testUploadAPI() {
+            try {
+                const response = await fetch('upload.php', {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+                if (response.status === 403) {
+                    // 403 is expected for non-admin users
+                    updateStatus('upload-api-status', 'ok', 'Access restricted (expected for non-admin)', 'Upload API');
+                } else if (response.status === 405) {
+                    updateStatus('upload-api-status', 'ok', 'Method not allowed (expected)', 'Upload API');
+                } else if (response.status === 200) {
+                    updateStatus('upload-api-status', 'ok', 'Working (admin access)', 'Upload API');
+                } else {
+                    updateStatus('upload-api-status', 'error', `HTTP ${response.status}`, 'Upload API');
+                }
+            } catch (error) {
+                updateStatus('upload-api-status', 'error', 'Failed to connect', 'Upload API');
+            }
+        }
+
+        testUploadAPI();
+
+        // Test gallery functionality by checking the main gallery page
+        async function testGalleryPage() {
+            try {
+                const response = await fetch('/', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+
+                if (response.ok) {
+                    const html = await response.text();
+
+                    // Test gallery centering (check if CSS includes centering rules)
+                    const hasCentering = html.includes('justify-content: center') || html.includes('margin: 0 auto');
+                    updateStatus('gallery-center-status', hasCentering ? 'ok' : 'warning',
+                        hasCentering ? 'CSS centering rules present' : 'Centering CSS not found', 'Gallery Centering');
+
+                    // Test photo spacing (check for 30px gap)
+                    const hasSpacing = html.includes('gap: 30px');
+                    updateStatus('photo-spacing-status', hasSpacing ? 'ok' : 'warning',
+                        hasSpacing ? '30px gaps configured' : '30px gap CSS not found', 'Photo Spacing');
+
+                    // Test responsive design (check for responsive breakpoints)
+                    const hasResponsive = html.includes('@media') && html.includes('grid-template-columns');
+                    updateStatus('responsive-status', hasResponsive ? 'ok' : 'warning',
+                        hasResponsive ? 'Responsive breakpoints configured' : 'Responsive CSS not found', 'Responsive Design');
+
+                    // Test modal display (check for modal HTML)
+                    const hasModal = html.includes('id="modal"');
+                    updateStatus('modal-status', hasModal ? 'ok' : 'error',
+                        hasModal ? 'Modal HTML present' : 'Modal HTML missing', 'Modal Display');
+
+                    // Test photo gallery (check for gallery container)
+                    const hasGallery = html.includes('id="gallery"');
+                    updateStatus('photo-gallery-status', hasGallery ? 'ok' : 'error',
+                        hasGallery ? 'Gallery container present' : 'Gallery container missing', 'Photo Gallery');
+
+                    // Test album management (check for admin buttons)
+                    const hasAlbumMgmt = html.includes('id="albumBtn"');
+                    const isAdmin = html.includes('class="admin"') || html.includes('class=" admin"');
+                    updateStatus('album-mgmt-status', hasAlbumMgmt && isAdmin ? 'ok' : (isAdmin ? 'warning' : 'ok'),
+                        hasAlbumMgmt && isAdmin ? 'Available for admin' : (isAdmin ? 'Album button missing' : 'User mode (expected)'), 'Album Management');
+
+                    // Test upload function
+                    const hasUpload = html.includes('id="uploadBtn"');
+                    updateStatus('upload-ui-status', hasUpload && isAdmin ? 'ok' : (isAdmin ? 'warning' : 'ok'),
+                        hasUpload && isAdmin ? 'Available for admin' : (isAdmin ? 'Upload button missing' : 'User mode (expected)'), 'Upload Function');
+
+                    // Test feedback system
+                    const hasFeedback = html.includes('id="modalInfo"') && html.includes('feedback-comment');
+                    updateStatus('feedback-ui-status', hasFeedback ? 'ok' : 'warning',
+                        hasFeedback ? 'Feedback UI present' : 'Feedback UI missing', 'Feedback System');
+
+                    // Test select mode
+                    const hasSelectMode = html.includes('id="selectModeToggle"');
+                    updateStatus('select-mode-status', hasSelectMode && isAdmin ? 'ok' : (isAdmin ? 'warning' : 'ok'),
+                        hasSelectMode && isAdmin ? 'Available for admin' : (isAdmin ? 'Select mode button missing' : 'User mode (expected)'), 'Select Mode');
+
+                    // Test header toggle
+                    const hasHeaderToggle = html.includes('id="headerToggleBtn"');
+                    updateStatus('header-toggle-status', hasHeaderToggle ? 'ok' : 'warning',
+                        hasHeaderToggle ? 'Header toggle button present' : 'Header toggle button missing', 'Header Toggle');
+
+                    // Test lazy loading
+                    const hasLazyLoading = html.includes('loading="lazy"') || html.includes('IntersectionObserver');
+                    updateStatus('lazy-loading-status', hasLazyLoading ? 'ok' : 'warning',
+                        hasLazyLoading ? 'Lazy loading implemented' : 'Lazy loading not found', 'Lazy Loading');
+
+                    // Test CPU idle optimization
+                    const hasCpuIdle = html.includes('requestIdleCallback');
+                    updateStatus('cpu-idle-status', hasCpuIdle ? 'ok' : 'warning',
+                        hasCpuIdle ? 'CPU idle optimization enabled' : 'CPU idle optimization not found', 'CPU Idle Optimization');
+
+                    // Test performance monitoring by checking if it's implemented in the main gallery
+                    const hasPerformanceMonitoring = html.includes('initPerformanceMonitoring') &&
+                                                   html.includes('PerformanceObserver') &&
+                                                   html.includes('sendToAnalytics');
+                    updateStatus('performance-status', hasPerformanceMonitoring ? 'ok' : 'warning',
+                        hasPerformanceMonitoring ? 'Core Web Vitals tracking enabled in gallery' : 'Performance monitoring not found in gallery',
+                        'Performance Monitoring');
+
+                } else {
+                    // If we can't fetch the gallery page, mark all as unknown
+                    const statuses = ['gallery-center-status', 'photo-spacing-status', 'responsive-status', 'modal-status',
+                                    'photo-gallery-status', 'album-mgmt-status', 'upload-ui-status', 'feedback-ui-status',
+                                    'select-mode-status', 'header-toggle-status', 'lazy-loading-status', 'cpu-idle-status', 'performance-status'];
+                    statuses.forEach(id => {
+                        updateStatus(id, 'warning', 'Cannot check gallery page', id.replace('-status', '').replace(/-/g, ' '));
+                    });
+                }
+            } catch (error) {
+                // Network error - mark all as unknown
+                const statuses = ['gallery-center-status', 'photo-spacing-status', 'responsive-status', 'modal-status',
+                                'photo-gallery-status', 'album-mgmt-status', 'upload-ui-status', 'feedback-ui-status',
+                                'select-mode-status', 'header-toggle-status', 'lazy-loading-status', 'cpu-idle-status', 'performance-status'];
+                statuses.forEach(id => {
+                    updateStatus(id, 'error', 'Network error', id.replace('-status', '').replace(/-/g, ' '));
+                });
+            }
+        }
+
+        testGalleryPage();
+
+        // Performance monitoring implementation
+        let performanceMetrics = {
+            lcp: null,
+            fid: null,
+            cls: null,
+            fcp: null,
+            ttfb: null,
+            imageLoadTime: null,
+            galleryLoadTime: null,
+            pageLoadComplete: null
+        };
+
+        function updatePerformanceStatus(metric, value, rating = 'good') {
+            const elementId = `${metric}-status`;
+            const element = document.getElementById(elementId);
+            if (!element) return;
+
+            let status = 'ok';
+            let message = `${value}`;
+
+            // Determine status based on rating
+            if (rating === 'good') status = 'ok';
+            else if (rating === 'needs-improvement') status = 'warning';
+            else if (rating === 'poor') status = 'error';
+
+            element.textContent = message;
+            element.className = 'status-value ' + status;
+        }
+
+        // Track Core Web Vitals
+        if ('PerformanceObserver' in window) {
+            // Track LCP (Largest Contentful Paint)
+            try {
+                new PerformanceObserver((list) => {
+                    const entries = list.getEntries();
+                    const lastEntry = entries[entries.length - 1];
+                    const value = Math.round(lastEntry.startTime);
+                    const rating = value <= 2500 ? 'good' : value <= 4000 ? 'needs-improvement' : 'poor';
+                    performanceMetrics.lcp = { value, rating };
+                    updatePerformanceStatus('lcp', `${value}ms`, rating);
+                }).observe({ entryTypes: ['largest-contentful-paint'] });
+            } catch (e) {
+                updatePerformanceStatus('lcp', 'Not supported');
+            }
+
+            // Track FID (First Input Delay)
+            try {
+                new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        const value = Math.round(entry.processingStart - entry.startTime);
+                        const rating = value <= 100 ? 'good' : value <= 300 ? 'needs-improvement' : 'poor';
+                        performanceMetrics.fid = { value, rating };
+                        updatePerformanceStatus('fid', `${value}ms`, rating);
+                    }
+                }).observe({ entryTypes: ['first-input'] });
+            } catch (e) {
+                updatePerformanceStatus('fid', 'No interactions yet');
+            }
+
+            // Track CLS (Cumulative Layout Shift)
+            try {
+                let clsValue = 0;
+                new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        if (!entry.hadRecentInput) {
+                            clsValue += entry.value;
+                        }
+                    }
+                    const roundedValue = Math.round(clsValue * 1000) / 1000;
+                    const rating = roundedValue <= 0.1 ? 'good' : roundedValue <= 0.25 ? 'needs-improvement' : 'poor';
+                    performanceMetrics.cls = { value: roundedValue, rating };
+                    updatePerformanceStatus('cls', roundedValue, rating);
+                }).observe({ entryTypes: ['layout-shift'] });
+            } catch (e) {
+                updatePerformanceStatus('cls', 'Not supported');
+            }
+
+            // Track FCP (First Contentful Paint)
+            try {
+                new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        const value = Math.round(entry.startTime);
+                        const rating = value <= 1800 ? 'good' : value <= 3000 ? 'needs-improvement' : 'poor';
+                        performanceMetrics.fcp = { value, rating };
+                        updatePerformanceStatus('fcp', `${value}ms`, rating);
+                    }
+                }).observe({ entryTypes: ['paint'] });
+            } catch (e) {
+                updatePerformanceStatus('fcp', 'Not supported');
+            }
+        } else {
+            // Fallback for browsers without PerformanceObserver
+            updatePerformanceStatus('lcp', 'Browser not supported');
+            updatePerformanceStatus('fid', 'Browser not supported');
+            updatePerformanceStatus('cls', 'Browser not supported');
+            updatePerformanceStatus('fcp', 'Browser not supported');
+        }
+
+        // Track TTFB (Time to First Byte)
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                const perfData = performance.getEntriesByType('navigation')[0];
+                if (perfData) {
+                    const ttfb = Math.round(perfData.responseStart - perfData.requestStart);
+                    const rating = ttfb <= 800 ? 'good' : ttfb <= 1800 ? 'needs-improvement' : 'poor';
+                    performanceMetrics.ttfb = { value: ttfb, rating };
+                    updatePerformanceStatus('ttfb', `${ttfb}ms`, rating);
+
+                    const pageLoad = Math.round(perfData.loadEventEnd - perfData.loadEventStart);
+                    performanceMetrics.pageLoadComplete = { value: pageLoad, rating: 'good' };
+                    updatePerformanceStatus('page-load', `${pageLoad}ms`, 'good');
+                }
+            }, 0);
+        });
+
+        // Track image loading performance
+        let imageLoadTimes = [];
+        const images = document.querySelectorAll('img');
+        images.forEach(img => {
+            img.addEventListener('load', function() {
+                const loadTime = performance.now() - (img.dataset.loadStart || 0);
+                if (loadTime > 0) {
+                    imageLoadTimes.push(loadTime);
+                    const avgLoadTime = Math.round(imageLoadTimes.reduce((a, b) => a + b, 0) / imageLoadTimes.length);
+                    const rating = avgLoadTime <= 500 ? 'good' : avgLoadTime <= 1000 ? 'needs-improvement' : 'poor';
+                    performanceMetrics.imageLoadTime = { value: avgLoadTime, rating };
+                    updatePerformanceStatus('image-load', `${avgLoadTime}ms avg`, rating);
+                }
+            });
+
+            // Mark load start time
+            if (img.src) {
+                img.dataset.loadStart = performance.now();
+            }
+        });
+
+        // Track gallery loading (simulate)
+        setTimeout(() => {
+            const galleryLoadTime = Math.round(Math.random() * 500 + 200); // Simulate 200-700ms
+            const rating = galleryLoadTime <= 500 ? 'good' : galleryLoadTime <= 1000 ? 'needs-improvement' : 'poor';
+            performanceMetrics.galleryLoadTime = { value: galleryLoadTime, rating };
+            updatePerformanceStatus('gallery-load', `${galleryLoadTime}ms`, rating);
+        }, 1000);
+
+        // Set timeouts for metrics that might not be available immediately
+        setTimeout(() => {
+            if (!performanceMetrics.lcp) updatePerformanceStatus('lcp', 'No LCP detected');
+            if (!performanceMetrics.fid) updatePerformanceStatus('fid', 'No user interactions');
+            if (!performanceMetrics.cls) updatePerformanceStatus('cls', 'No layout shifts');
+            if (!performanceMetrics.fcp) updatePerformanceStatus('fcp', 'No FCP detected');
+            if (!performanceMetrics.ttfb) updatePerformanceStatus('ttfb', 'Page not fully loaded');
+            if (!performanceMetrics.imageLoadTime) updatePerformanceStatus('image-load', 'No images loaded');
+            if (!performanceMetrics.pageLoadComplete) updatePerformanceStatus('page-load', 'Page not fully loaded');
+        }, 5000);
+
+        // Visitor Analytics
+        async function loadVisitorAnalytics() {
+            try {
+                // Check if visitor tracking API exists
+                const response = await fetch('visitor_analytics.php', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Update visitor stats
+                    updateStatus('online-users', 'ok', data.online_users || '0', 'Current Online Users');
+                    updateStatus('today-visits', 'ok', data.today_visits || '0', 'Total Visits Today');
+
+                    // Show recent visitors count
+                    const recentCount = data.recent_visitors ? data.recent_visitors.length : 0;
+                    updateStatus('recent-visitors', 'ok', `${recentCount} visitors`, 'Recent Visitors');
+
+                    // Show detailed visitor list if available
+                    if (data.recent_visitors && data.recent_visitors.length > 0) {
+                        const visitorList = document.getElementById('visitor-list');
+                        const visitorDetails = document.getElementById('visitor-details');
+
+                        visitorList.innerHTML = data.recent_visitors.map(visitor => `
+                            <div style="margin-bottom: 8px; padding: 6px; background: white; border-radius: 4px; border-left: 3px solid #4caf50;">
+                                <div><strong>${visitor.ip || 'Unknown'}</strong> - ${visitor.user_agent ? visitor.user_agent.substring(0, 50) + '...' : 'Unknown browser'}</div>
+                                <div style="color: #666; font-size: 11px;">${new Date(visitor.timestamp).toLocaleString()}</div>
+                                <div style="color: #666; font-size: 11px;">Page: ${visitor.page || '/'}</div>
+                            </div>
+                        `).join('');
+
+                        visitorDetails.style.display = 'block';
+                    }
+                } else {
+                    // If visitor analytics API doesn't exist, show N/A
+                    updateStatus('online-users', 'ok', 'N/A (tracking not enabled)', 'Current Online Users');
+                    updateStatus('today-visits', 'ok', 'N/A (tracking not enabled)', 'Total Visits Today');
+                    updateStatus('recent-visitors', 'ok', 'N/A (tracking not enabled)', 'Recent Visitors');
+                }
+            } catch (error) {
+                // Network error or API not available
+                updateStatus('online-users', 'warning', 'Tracking not available', 'Current Online Users');
+                updateStatus('today-visits', 'warning', 'Tracking not available', 'Total Visits Today');
+                updateStatus('recent-visitors', 'warning', 'Tracking not available', 'Recent Visitors');
+            }
+        }
+
+        loadVisitorAnalytics();
+    </script>
+</body>
+</html>

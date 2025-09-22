@@ -17,6 +17,7 @@ $sql = "CREATE TABLE IF NOT EXISTS albums (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    password VARCHAR(255),
     cover_image VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -37,13 +38,37 @@ if ($conn->query($sql) === TRUE) {
     echo "❌ Error adding album_id column: " . $conn->error . "<br>";
 }
 
+// Add password column to albums table
+echo "<h2>Adding Password Column to Albums Table...</h2>";
+$sql = "ALTER TABLE albums ADD COLUMN IF NOT EXISTS password VARCHAR(255)";
+if ($conn->query($sql) === TRUE) {
+    echo "✅ Password column added to albums table<br>";
+} else {
+    echo "❌ Error adding password column: " . $conn->error . "<br>";
+}
+
+// Clean up invalid album_id references before adding constraint
+echo "<h2>Cleaning up invalid album references...</h2>";
+$sql = "UPDATE photos SET album_id = NULL WHERE album_id IS NOT NULL AND album_id NOT IN (SELECT id FROM albums)";
+if ($conn->query($sql) === TRUE) {
+    $affected = $conn->affected_rows;
+    echo "✅ Cleaned up $affected invalid album references<br>";
+} else {
+    echo "⚠️ Error cleaning up references: " . $conn->error . "<br>";
+}
+
 // Add foreign key constraint
 echo "<h2>Adding Foreign Key Constraint...</h2>";
-$sql = "ALTER TABLE photos ADD CONSTRAINT IF NOT EXISTS fk_album FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE SET NULL";
+$sql = "ALTER TABLE photos ADD CONSTRAINT fk_album FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE SET NULL";
 if ($conn->query($sql) === TRUE) {
     echo "✅ Foreign key constraint added<br>";
 } else {
-    echo "⚠️ Foreign key constraint may already exist or failed: " . $conn->error . "<br>";
+    // Check if the error is because the constraint already exists
+    if (strpos($conn->error, 'Duplicate key name') !== false || strpos($conn->error, 'already exists') !== false) {
+        echo "ℹ️ Foreign key constraint already exists<br>";
+    } else {
+        echo "⚠️ Foreign key constraint failed: " . $conn->error . "<br>";
+    }
 }
 
 // Create default album

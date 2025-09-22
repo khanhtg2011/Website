@@ -3,22 +3,101 @@ session_start(); // Khởi tạo session
 require __DIR__ . "/config.php";
 $isAdmin = isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true;
 
+// Debug: Log session status
+error_log("SESSION INIT: Session ID: " . session_id() . ", is_admin: " . ($isAdmin ? 'true' : 'false') . ", request: " . ($_SERVER['REQUEST_URI'] ?? 'unknown'));
+
+// Visitor tracking (only for non-admin users to avoid skewing analytics)
+if (!$isAdmin) {
+    $visitorsFile = __DIR__ . '/data/visitors.json';
+
+    // Ensure data directory exists
+    if (!is_dir(__DIR__ . '/data')) {
+        mkdir(__DIR__ . '/data', 0755, true);
+    }
+
+    // Load existing visitor data
+    $visitors = [];
+    if (file_exists($visitorsFile)) {
+        $data = file_get_contents($visitorsFile);
+        $visitors = json_decode($data, true) ?: [];
+    }
+
+    // Get visitor information
+    $visitorInfo = [
+        'ip' => $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+        'timestamp' => date('Y-m-d H:i:s'),
+        'page' => $_SERVER['REQUEST_URI'] ?? '/',
+        'session_id' => session_id()
+    ];
+
+    // Check if this visitor was already recorded recently (within last 5 minutes)
+    $recentVisit = false;
+    foreach ($visitors as $existingVisitor) {
+        if ($existingVisitor['ip'] === $visitorInfo['ip'] &&
+            $existingVisitor['session_id'] === $visitorInfo['session_id'] &&
+            (time() - strtotime($existingVisitor['timestamp'])) < 300) { // 5 minutes
+            $recentVisit = true;
+            break;
+        }
+    }
+
+    // Add new visitor if not recently recorded
+    if (!$recentVisit) {
+        $visitors[] = $visitorInfo;
+
+        // Clean up old entries (keep only last 1000 entries to prevent file from growing too large)
+        if (count($visitors) > 1000) {
+            $visitors = array_slice($visitors, -1000);
+        }
+
+        // Save visitor data
+        file_put_contents($visitorsFile, json_encode($visitors, JSON_PRETTY_PRINT));
+    }
+}
+
 // Xử lý logic dựa trên URI
-$request = trim($_SERVER['REQUEST_URI'], '/');
+$request = isset($_SERVER['REQUEST_URI']) ? trim($_SERVER['REQUEST_URI'], '/') : '';
 
 // Handle AJAX login requests
-if (isset($_GET['admin_login_ajax']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if (isset($_GET['admin_login_ajax']) && isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json');
 
-    $ADMIN_USER = "Khanh";
-    $ADMIN_PASS = "0799102011";
+    error_log("LOGIN AJAX: Login attempt detected");
 
     if (!isset($_SESSION['login_attempts'])) $_SESSION['login_attempts'] = 0;
 
     $user = trim($_POST['username'] ?? '');
     $pass = $_POST['password'] ?? '';
 
-    if ($user === $ADMIN_USER && $pass === $ADMIN_PASS) {
+    // Check admin credentials from database first, fallback to hardcoded
+    $login_success = false;
+
+    // Try database first
+    if ($db && DB_AVAILABLE) {
+        try {
+            $stmt = $db->prepare("SELECT password FROM admin_credentials WHERE username = ?");
+            $stmt->bind_param("s", $user);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $admin = $result->fetch_assoc();
+            $stmt->close();
+
+            if ($admin && $admin['password'] === $pass) {
+                $login_success = true;
+            }
+        } catch (Exception $e) {
+            // Database query failed, fall back to hardcoded
+            error_log("Database admin login failed: " . $e->getMessage());
+        }
+    }
+
+    // Fallback to hardcoded credentials if database not available or query failed
+    if (!$login_success && $user === "Khanh" && $pass === "0799102011") {
+        $login_success = true;
+    }
+
+    if ($login_success) {
         $_SESSION['is_admin'] = true;
         $_SESSION['username'] = $user;
         $_SESSION['login_attempts'] = 0;
@@ -41,17 +120,51 @@ if (isset($_GET['admin_login_ajax']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// Handle private gallery logout
+if (isset($_GET['logout_private'])) {
+    unset($_SESSION['private_gallery_access']);
+    unset($_SESSION['private_gallery_access_time']);
+    header("Location: /");
+    exit;
+}
+
 // Handle regular admin login page (fallback)
 if ($request === 'admin_login' && !isset($_SESSION['is_admin'])) {
   // Admin login logic
-  $ADMIN_USER = "Khanh";
-  $ADMIN_PASS = "0799102011";
   if (!isset($_SESSION['login_attempts'])) $_SESSION['login_attempts'] = 0;
   $error = "";
-  if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
       $user = trim($_POST['username'] ?? '');
       $pass = $_POST['password'] ?? '';
-      if ($user === $ADMIN_USER && $pass === $ADMIN_PASS) {
+
+      // Check admin credentials from database first, fallback to hardcoded
+      $login_success = false;
+  
+      // Try database first
+      if ($db && DB_AVAILABLE) {
+          try {
+              $stmt = $db->prepare("SELECT password FROM admin_credentials WHERE username = ?");
+              $stmt->bind_param("s", $user);
+              $stmt->execute();
+              $result = $stmt->get_result();
+              $admin = $result->fetch_assoc();
+              $stmt->close();
+  
+              if ($admin && $admin['password'] === $pass) {
+                  $login_success = true;
+              }
+          } catch (Exception $e) {
+              // Database query failed, fall back to hardcoded
+              error_log("Database admin login failed: " . $e->getMessage());
+          }
+      }
+  
+      // Fallback to hardcoded credentials if database not available or query failed
+      if (!$login_success && $user === "Khanh" && $pass === "0799102011") {
+          $login_success = true;
+      }
+
+      if ($login_success) {
           $_SESSION['is_admin'] = true;
           $_SESSION['username'] = $user;
           $_SESSION['login_attempts'] = 0;
@@ -232,10 +345,47 @@ if (document.querySelector(\'.error-box\')) {
 </body>
 </html>';
   exit;
-} elseif ($request === 'admin_logout' && $isAdmin) {
+} elseif ($request === 'admin_logout') {
+    // Debug: Log logout attempt
+    error_log("LOGOUT: Starting logout process for request: " . $request);
+    error_log("LOGOUT: Current session ID: " . session_id());
+    error_log("LOGOUT: is_admin before logout: " . (isset($_SESSION['is_admin']) ? $_SESSION['is_admin'] : 'not set'));
+
+    // Start fresh session to ensure we can modify it
+    session_start();
+
+    // Clear all session variables
+    $_SESSION = array();
+
+    // Destroy the session completely
+    $session_name = session_name();
+    $session_id = session_id();
+
+    // Unset all session variables
     session_unset();
+
+    // Destroy the session
     session_destroy();
-    header("Location: /");
+
+    // Clear all possible session cookies
+    if (isset($_COOKIE[$session_name])) {
+        setcookie($session_name, '', time() - 42000, '/');
+        setcookie($session_name, '', time() - 42000, '', $_SERVER['HTTP_HOST'] ?? '');
+        setcookie($session_name, '', time() - 42000, '/', $_SERVER['HTTP_HOST'] ?? '');
+    }
+
+    // Clear PHPSESSID cookie specifically
+    if (isset($_COOKIE['PHPSESSID'])) {
+        setcookie('PHPSESSID', '', time() - 42000, '/');
+    }
+
+    error_log("LOGOUT: Session destroyed, redirecting to home page");
+
+    // Force redirect with no-cache headers
+    header("Cache-Control: no-cache, no-store, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("Expires: 0");
+    header("Location: /?logged_out=1&t=" . time());
     exit;
 } elseif ($request === 'list' && $isAdmin) {
     header('Content-Type: application/json');
@@ -244,8 +394,7 @@ if (document.querySelector(\'.error-box\')) {
 }
 ?>
 <script>
-// Right-click toggle functionality for admin - declare globally
-let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; // Default to true
+// Right-click is disabled for users, enabled for admin
 
 (function(){
   const interactiveSelector = 'input, textarea, select, button, a, [contenteditable], .allow-select';
@@ -384,15 +533,9 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       // Don't prevent default - allow browser's inspect menu
       return;
     } else {
-      // For non-admin users, check toggle state
-      if (rightClickEnabled) {
-        // Right-click is enabled for users - allow default context menu
-        return;
-      } else {
-        // Right-click is disabled for users - show custom context menu
-        e.preventDefault();
-        showAdminContextMenu(e, e.target);
-      }
+      // For non-admin users, always disable right-click
+      e.preventDefault();
+      showAdminContextMenu(e, e.target);
     }
   }, { passive: false });
 
@@ -469,39 +612,205 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="format-detection" content="telephone=no" />
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>📸 Khanhs Photos Gallery</title>
-  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
-  <!-- Google Tag Manager -->
-  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
-  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
-  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
-  })(window,document,'script','dataLayer','GTM-XXXXXX');</script>
-  <!-- End Google Tag Manager -->
+  <!-- Performance hints for better loading -->
+  <meta name="theme-color" content="#4caf50">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <!-- Performance optimizations - Third-party scripts removed for faster initial page load -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- DNS prefetch for faster image loading -->
+  <link rel="dns-prefetch" href="//fonts.googleapis.com">
+  <link rel="dns-prefetch" href="//fonts.gstatic.com">
+  <!-- Removed: JSDelivr CDN (6 KiB, 1ms) and Google Tag Manager (2 KiB, 0ms) -->
+  <!-- These can be added back if needed for analytics or EXIF processing -->
   <style>
     :root { --green: #4caf50; }
     * { box-sizing: border-box; }
+
+    /* Screen reader only class for accessibility */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; background: #fafafa; color: #222;
-                 transition: background .3s, color .3s; min-height: 100vh; width: 100%; }
+                 transition: background .3s, color .3s; min-height: 100vh; width: 100%; height: 100%; }
     body.dark { background: #121212; color: #eee; }
 
     /* Ensure all main containers have transparent backgrounds */
     main, #gallery, .photo-card { background: transparent !important; }
 
-    /* Make sure the layout extends to full width */
-    * { box-sizing: border-box; }
+    /* Remove white space at bottom */
+    main { margin-bottom: 0; padding-bottom: 0; }
+    body { margin-bottom: 0; padding-bottom: 0; }
+    html { margin-bottom: 0; padding-bottom: 0; }
 
-    header { position: sticky; top: 0; z-index: 10;
-             background: var(--green); color: #fff;
-             box-shadow: 0 4px 20px rgba(0, 0, 0, .2);
-             border-bottom: 3px solid rgba(255, 255, 255, 0.1); }
+
+
+    /* Ensure no white space anywhere */
+    * {
+      box-sizing: border-box;
+    }
+
+    /* Remove any default margins that could cause white space */
+    body, html {
+      margin: 0 !important;
+    }
+
+    /* Main container will have its own margin rules */
+    main {
+      margin: 0;
+    }
+
+
+    /* Make sure gallery fills available space */
+    #gallery {
+      margin: 0 auto 40px !important;
+      padding: 18px !important;
+      gap: 30px !important;
+    }
+
+    /* Optimized loading styles for better Speed Index */
+    .photo-card img {
+      transition: opacity 0.2s ease;
+    }
+
+    .photo-card img[loading="lazy"] {
+      opacity: 0;
+    }
+
+    .photo-card img[loading="eager"] {
+      opacity: 1;
+    }
+
+    /* Critical above-the-fold content optimization */
+    #gallery {
+      contain: layout style paint;
+    }
+
+    .photo-card {
+      contain: layout style paint;
+      will-change: auto;
+    }
+
+    /* Force no white space anywhere */
+    html, body {
+      height: 100% !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow-x: hidden !important;
+    }
+
+    main {
+      min-height: 100vh !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+
+    /* Ensure gallery is visible and centered */
+    #gallery {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: grid !important;
+    }
+
+    /* Make sure photo cards are visible */
+    .photo-card {
+      opacity: 1 !important;
+      visibility: visible !important;
+      display: block !important;
+    }
+
+/* Make sure the layout extends to full width */
+* { box-sizing: border-box; }
+
+/* Main container - full width for gallery centering */
+main {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  display: block;
+}
+
+
+
+header { position: sticky; top: 0; z-index: 10;
+         background: var(--green); color: #fff;
+         box-shadow: 0 4px 20px rgba(0, 0, 0, .2);
+         border-bottom: 3px solid rgba(255, 255, 255, 0.1);
+         width: 100%; margin: 0; }
+
+/* Ensure gallery is visible and centered */
+#gallery {
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(200px, 1fr)) !important;
+  justify-content: center !important;
+  gap: 30px !important;
+  max-width: 1400px;
+  margin: 0 auto !important;
+}
     body.dark header { background: linear-gradient(135deg, #2a2a2a, #1a1a1a); }
 
     .header-main { display: flex; justify-content: space-between; align-items: center;
-                   padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+                   padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                   max-width: 1400px; margin: 0 auto; }
+
+    /* Private Gallery Button */
+    .private-gallery-btn {
+      background: linear-gradient(135deg, #dc3545, #c82333);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s;
+      margin-left: 10px;
+    }
+    .private-gallery-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    }
+
+    /* Header toggle button */
+    .header-toggle-btn {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+      margin-left: 10px;
+    }
+    .header-toggle-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .header-toggle-btn.hidden {
+      background: linear-gradient(135deg, #f44336, #d32f2f);
+    }
+    .header-toggle-btn.hidden:hover {
+      background: linear-gradient(135deg, #d32f2f, #b71c1c);
+    }
     .header-main h1 { margin: 0; font-size: 22px; font-weight: 700; }
 
     .album-navigation { display: flex; align-items: center; gap: 16px;
@@ -528,13 +837,11 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     .album-select option { padding: 8px; }
 
     .header-controls { padding: 12px 20px; display: flex; justify-content: space-between;
-                       align-items: center; flex-wrap: wrap; gap: 12px; }
+                       align-items: center; flex-wrap: wrap; gap: 12px;
+                       max-width: 1400px; margin: 0 auto; }
 
-    .search-sort { display: flex; gap: 12px; align-items: center; }
-    .search-sort input { padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3);
-                         background: rgba(255, 255, 255, 0.9); color: #333; font-size: 14px; }
-    .search-sort select { padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.3);
-                          background: rgba(255, 255, 255, 0.9); color: #333; font-size: 14px; cursor: pointer; }
+    .search-sort { display: none !important; }
+    /* Search and sort removed */
 
     .admin-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .btn { background: rgba(255, 255, 255, 0.9); color: var(--green); border: none;
@@ -578,7 +885,6 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     }
     body.dark .btn { background: #555; color: #fff; }
     body.dark .btn:hover { background: #666; }
-    #searchInput, #sortSelect { padding: 8px; border-radius: 8px; border: none; }
 
     #progressWrapper { width: min(900px, 92%); margin: 14px auto 0;
                        background: #e9e9e9; border-radius: 10px;
@@ -588,12 +894,6 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
                    transition: width .2s; }
     #uploadStatus { text-align: center; margin: 10px auto; display: none; }
 
-    #storageInfo { margin: 10px auto 0; width: fit-content;
-                    background: rgba(255, 255, 255, 0.9); color: #333;
-                    padding: 6px 12px; border-radius: 8px;
-                    box-shadow: 0 2px 6px rgba(0, 0, 0, .15);
-                    font-size: 13px; display: flex; gap: 8px; }
-    body.dark #storageInfo { background: rgba(30, 30, 30, 0.9); color: #eee; }
 
     #spinner { display: none; text-align: center; padding: 28px; }
     .loader { border: 6px solid #f3f3f3; border-top: 6px solid var(--green);
@@ -601,27 +901,31 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
               animation: spin 1s linear infinite; margin: auto; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    #gallery { display: grid; grid-template-columns: repeat(4, 1fr);
-                gap: 20px; padding: 18px; max-width: 1200px; margin: 0 auto 40px;
-                background: transparent; }
+    /* Gallery rule removed - consolidated above */
     .photo-card { position: relative; border-radius: 8px; overflow: hidden;
                   cursor: pointer; opacity: 0; transform: scale(.88);
-                  animation: fadeIn .5s forwards; background: transparent; }
-    .photo-card img { width: 100%; height: 200px; object-fit: cover;
+                  animation: fadeIn .5s forwards; background: transparent;
+                  width: 100%; max-width: 400px; height: 200px; /* Fixed dimensions to prevent CLS */
+                  margin: 0 auto; /* Center within grid cell */ }
+    .photo-card img { width: 100%; height: 100%; object-fit: cover;
                       display: block; }
     @keyframes fadeIn { to { opacity: 1; transform: scale(1); } }
 
-    /* Responsive breakpoints */
-    @media (min-width: 1200px) {
-      #gallery { grid-template-columns: repeat(4, 1fr); }
+    /* Responsive breakpoints - Default to 3 columns */
+    @media (min-width: 1024px) {
+      #gallery { grid-template-columns: repeat(5, minmax(200px, 1fr)) !important; }
+      .photo-card { height: 200px; }
       .photo-card img { height: 200px; }
     }
     @media (min-width: 768px) and (max-width: 1199px) {
-      #gallery { grid-template-columns: repeat(3, 1fr); }
-      .photo-card img { height: 180px; }
+      #gallery { grid-template-columns: repeat(3, minmax(200px, 1fr)); }
+      .photo-card { height: 200px; }
+      .photo-card img { height: 200px; }
     }
     @media (max-width: 767px) {
-      #gallery { grid-template-columns: repeat(2, 1fr); }
+      main { padding: 0 18px; }
+      #gallery { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+      .photo-card { height: 160px; max-width: 100%; }
       .photo-card img { height: 160px; }
       header { flex-direction: column; align-items: flex-start; gap: 10px; }
       .actions { justify-content: flex-start; }
@@ -664,16 +968,28 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
         min-height: 44px;
         padding: 12px 16px;
         font-size: 16px; /* Prevent zoom on iOS */
+        margin: 2px; /* Add small margin for better touch separation */
       }
 
-      /* Improve search and select inputs */
-      .search-sort input,
-      .search-sort select {
-        padding: 12px 14px;
-        font-size: 16px;
-        min-height: 44px;
-        border-radius: 8px;
+      /* Improve admin action buttons layout on mobile */
+      .admin-actions {
+        flex-wrap: wrap;
+        gap: 8px;
       }
+
+      .admin-actions .btn {
+        flex: 1;
+        min-width: 120px;
+        justify-content: center;
+      }
+
+      /* Select mode toggle button specific mobile styling */
+      #selectModeToggle {
+        min-width: 140px;
+        font-size: 14px;
+      }
+
+      /* Search and sort removed */
 
       .album-select {
         padding: 12px 14px;
@@ -682,14 +998,72 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       }
     }
     @media (max-width: 480px) {
-      #gallery { grid-template-columns: repeat(1, 1fr); }
+      #gallery { grid-template-columns: 1fr; }
+      .photo-card { height: 200px; }
       .photo-card img { height: 200px; }
+
+      /* Improve select mode on very small screens */
+      .select-photo {
+        transform: scale(2.2);
+        top: 12px;
+        left: 12px;
+      }
+
+      /* Stack admin buttons vertically on very small screens */
+      .admin-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .admin-actions .btn {
+        width: 100%;
+        margin: 4px 0;
+      }
+    }
+
+    /* Landscape orientation adjustments */
+    @media (max-height: 500px) and (orientation: landscape) {
+      .photo-card { height: 140px; }
+      .photo-card img {
+        height: 140px;
+      }
+
+      .header-main {
+        padding: 8px 16px;
+      }
+
+      .header-controls {
+        padding: 6px 16px;
+      }
+
+      .admin-actions .btn {
+        padding: 8px 12px;
+        font-size: 14px;
+        min-height: 36px;
+      }
     }
 
     .select-photo {
       position: absolute; top: 6px; left: 6px; z-index: 3;
       transform: scale(1.4); background: rgba(255, 255, 255, 0.8);
       padding: 2px; border-radius: 4px;
+    }
+
+    /* Mobile-friendly checkbox sizing */
+    @media (max-width: 768px) {
+      .select-photo {
+        transform: scale(1.8);
+        top: 8px;
+        left: 8px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .select-photo {
+        transform: scale(2);
+        top: 10px;
+        left: 10px;
+      }
     }
 
     .delete-btn { position: absolute; top: 8px; right: 8px;
@@ -701,12 +1075,87 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     .delete-btn:hover { background: rgba(0, 0, 0, .8); }
     body.admin .delete-btn { opacity: 1; transform: scale(1); pointer-events: auto; }
 
-    #modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .85);
-              justify-content: center; align-items: center; padding: 18px;
-              animation: fadeInModal .25s; z-index: 10000; }
-    #modal > div { display: flex; align-items: flex-start; gap: 20px; max-width: 100%; max-height: 100%; padding: 20px; }
-    #modal img { max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-    #modalInfo { flex: 0 0 300px; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 8px; color: white; }
+    #modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .85);
+      justify-content: center;
+      align-items: center;
+      padding: 18px;
+      animation: fadeInModal .25s;
+      z-index: 10000;
+    }
+
+    #modal > div {
+      animation: modalSlideIn .3s ease-out;
+    }
+
+    @keyframes modalSlideIn {
+      from {
+        opacity: 0;
+        transform: scale(0.9) translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+    #modal > div { display: flex; align-items: flex-start; gap: 20px; max-width: 95vw; max-height: 95vh; padding: 20px; }
+    #modal img {
+      max-width: 70vw;
+      max-height: 85vh;
+      object-fit: contain;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    /* Photo transition animations */
+    #modal img.fade-out {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+
+    #modal img.fade-in {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    /* Directional slide animations for navigation */
+    #modal img.slide-left {
+      transform: translateX(-100%) scale(0.9);
+      opacity: 0;
+    }
+
+    #modal img.slide-right {
+      transform: translateX(100%) scale(0.9);
+      opacity: 0;
+    }
+
+    #modal img.slide-center {
+      transform: translateX(0) scale(1);
+      opacity: 1;
+    }
+    #modalInfo {
+      flex: 0 0 350px;
+      background: rgba(0,0,0,0.8);
+      padding: 25px;
+      border-radius: 12px;
+      color: white;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+
+    #modalInfo.fade-out {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+
+    #modalInfo.fade-in {
+      opacity: 1;
+      transform: translateX(0);
+    }
 
     /* Download button styling */
     #modalInfo button {
@@ -798,17 +1247,17 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
 
     /* Responsive design for smaller screens */
     @media (max-width: 768px) {
-      #modal > div { flex-direction: column; gap: 15px; padding: 15px; }
-      #modalInfo { flex: none; order: 2; width: 100%; }
-      #modal img { max-height: 60vh; order: 1; }
+      #modal > div { flex-direction: column; gap: 15px; padding: 15px; max-width: 98vw; max-height: 98vh; }
+      #modalInfo { flex: none; order: 2; width: 100%; max-width: none; }
+      #modal img { max-width: 95vw; max-height: 70vh; order: 1; }
       #modalInfo button { width: 100%; justify-content: center; }
       #modalInfo textarea { font-size: 16px; } /* Prevent zoom on iOS */
     }
 
     @media (max-width: 480px) {
-      #modal > div { padding: 10px; }
-      #modalInfo { padding: 15px; }
-      #modal img { max-height: 50vh; }
+      #modal > div { padding: 10px; max-width: 99vw; max-height: 99vh; }
+      #modalInfo { padding: 15px; max-width: none; }
+      #modal img { max-width: 98vw; max-height: 60vh; }
       #modalInfo button { padding: 12px 16px; font-size: 16px; }
       #modalInfo .star { font-size: 20px; }
     }
@@ -850,6 +1299,31 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     @keyframes zoomIn { from { transform: scale(.85); } to { transform: scale(1); } }
 
     .empty { text-align: center; opacity: .7; padding: 28px 0; }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+
+    .empty-state .empty-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.5;
+    }
+
+    .empty-state h3 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .empty-state p {
+      margin: 0 0 30px 0;
+      font-size: 16px;
+      color: #666;
+    }
 
     /* Album Management Styles */
     .modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .8);
@@ -1012,6 +1486,14 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     .camera-overlay {
       opacity: 0.95;
       transition: all 0.3s ease;
+    }
+
+    /* Hide camera overlay and album tags on mobile for cleaner view */
+    @media (max-width: 768px) {
+      .camera-overlay,
+      .album-tag {
+        display: none !important;
+      }
     }
 
     /* Admin Login Modal Styles */
@@ -1278,6 +1760,64 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       -webkit-touch-callout: none;
     }
 
+    /* Drag-to-select styles */
+    .drag-selection {
+      position: absolute;
+      border: 2px solid #4caf50;
+      background: rgba(76, 175, 80, 0.1);
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    /* Drag-to-select styles */
+    .selection-rectangle {
+      position: absolute;
+      border: 2px solid #4caf50;
+      background: rgba(76, 175, 80, 0.2);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* Load More Button Styles */
+    #loadMoreContainer {
+      margin: 20px auto;
+      max-width: 1400px;
+      width: 100%;
+      text-align: center;
+      padding: 0 20px;
+      box-sizing: border-box;
+    }
+
+    #loadMoreBtn {
+      background: linear-gradient(135deg, #4caf50, #45a049) !important;
+      border: none !important;
+      color: white !important;
+      font-weight: 600 !important;
+      transition: all 0.3s ease !important;
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3) !important;
+    }
+
+    #loadMoreBtn:hover {
+      background: linear-gradient(135deg, #45a049, #3d8b40) !important;
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4) !important;
+    }
+
+    #loadMoreBtn:disabled {
+      background: #ccc !important;
+      cursor: not-allowed !important;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+
+    #loadingMore .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #4caf50;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
     /* Allow context menu in admin mode */
     body.admin {
       -webkit-touch-callout: default !important;
@@ -1306,7 +1846,7 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
   </style>
   <script>const CSRF_TOKEN = "<?php echo addslashes(htmlspecialchars(csrf_token(), ENT_QUOTES)); ?>";</script>
 </head>
-<body class="dark <?php echo $isAdmin ? 'admin' : ''; ?>">
+<body class="dark <?php echo $isAdmin ? 'admin' : ''; ?>" onload="console.log('PAGE LOAD: Admin status on page load:', document.body.classList.contains('admin'), 'Session is_admin:', <?php echo $isAdmin ? 'true' : 'false'; ?>)">
   <header>
     <div class="header-main">
       <h1>📸 Khanhs Photos Gallery</h1>
@@ -1315,7 +1855,8 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
           <span class="album-icon">📁</span>
           <span class="album-text">Browsing:</span>
         </div>
-        <select id="albumSelect" class="album-select">
+        <label for="albumSelect" class="sr-only">Select Album</label>
+        <select id="albumSelect" class="album-select" aria-label="Select album to view">
           <option value="all">📸 All Photos</option>
         </select>
         <div class="album-stats" id="albumStats">
@@ -1327,29 +1868,24 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     </div>
 
     <div class="header-controls">
-      <div class="search-sort">
-        <input type="text" id="searchInput" placeholder="🔍 Tìm kiếm ảnh...">
-        <select id="sortSelect">
-          <option value="date-desc">🕒 Mới nhất</option>
-          <option value="date-asc">📅 Cũ nhất</option>
-          <option value="size-desc">📏 Lớn nhất</option>
-          <option value="size-asc">📐 Nhỏ nhất</option>
-        </select>
-      </div>
-
       <div class="admin-actions">
         <?php if ($isAdmin): ?>
           <button class="btn primary" id="uploadBtn">⬆️ Upload</button>
           <button class="btn secondary" id="folderBtn">📂 Thư mục</button>
           <button class="btn secondary" id="albumBtn">📁 Quản lý</button>
+          <a href="/admin-gallery.php" class="btn secondary" style="background: linear-gradient(135deg, #dc3545, #c82333); color: white;">💝 Private Memories</a>
+          <button class="btn secondary" id="deselectAllBtn" onclick="deselectAllPhotos()" style="display: none;">❌ Bỏ chọn</button>
           <button class="btn secondary" id="moveToAlbumBtn">📦 Chuyển</button>
           <button class="btn danger" onclick="deleteSelected(getSelectedFiles())">🗑️ Xóa</button>
-          <button class="btn toggle" id="rightClickToggle" onclick="toggleRightClick()">
-            <span id="toggleIcon">🚫</span>
-            <span id="toggleText">Right-Click: OFF</span>
+          <button class="btn toggle" id="selectModeToggle" onclick="toggleSelectMode()">
+            <span id="selectModeIcon">👆</span>
+            <span id="selectModeText">Select Mode: OFF</span>
           </button>
-          <a href="/admin_logout" class="btn logout">🚪 Thoát</a>
+          <button class="btn secondary" onclick="backupToWayback()">📦 Backup</button>
+          <button class="btn secondary" onclick="checkForUpdates()">🔄 Check Updates</button>
+          <a href="/admin_logout" class="btn logout" onclick="console.log('LOGOUT: Logout button clicked, current admin status:', document.body.classList.contains('admin'))">🚪 Thoát</a>
         <?php else: ?>
+            <button onclick="showPrivateGalleryModal()" class="private-gallery-btn">💝 Private Gallery</button>
             <button onclick="showLoginModal()" class="btn login">🔒 Đăng nhập</button>
           <?php endif; ?>
       </div>
@@ -1361,9 +1897,35 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
 
   <div id="progressWrapper"><div id="progressBar"></div></div>
   <div id="uploadStatus"></div>
-  <div id="storageInfo">💾 Đang tải...</div>
   <div id="spinner"><div class="loader"></div></div>
   <main id="gallery"></main>
+  <div id="loadMoreContainer" style="text-align: center; padding: 20px; display: none; border-top: 2px solid #eee; margin-top: 20px;">
+    <button id="loadMoreBtn" class="btn primary" onclick="loadMorePhotos()" style="font-size: 16px; padding: 12px 24px; background: linear-gradient(135deg, #4caf50, #45a049);">
+      📥 Load 35 More Photos
+    </button>
+    <div id="loadingMore" style="display: none; margin-top: 10px;">
+      <div class="loader" style="width: 30px; height: 30px;"></div>
+      <p style="margin: 10px 0 0 0; color: #666;">Loading 35 more photos...</p>
+    </div>
+  </div>
+  <!-- Private Gallery Access Modal -->
+  <div id="privateGalleryModal" class="modal" style="display: none;">
+    <div class="modal-content" style="background: linear-gradient(135deg, rgba(220, 53, 69, 0.1), rgba(255, 255, 255, 0.95)); max-width: 400px; padding: 30px; border-radius: 15px; text-align: center;">
+      <h3 style="color: #dc3545; margin-bottom: 20px;">🔒 Private Gallery Access</h3>
+      <p style="margin-bottom: 20px; color: #666;">Enter password to access private memories</p>
+
+      <div id="privateGalleryError" style="display: none; background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; margin-bottom: 15px;"></div>
+
+      <form id="privateGalleryForm" onsubmit="return false;">
+        <input type="password" id="privateGalleryPassword" placeholder="Enter password" style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 15px; font-size: 16px;" required>
+        <div style="display: flex; gap: 10px;">
+          <button type="submit" style="flex: 1; background: #dc3545; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer;">Access Gallery</button>
+          <button type="button" onclick="closePrivateGalleryModal()" style="flex: 1; background: #6c757d; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="modal">
     <div style="display: flex; align-items: flex-start; gap: 20px; max-width: 100%; max-height: 100%; padding: 20px; position: relative;">
       <!-- Close Button -->
@@ -1386,6 +1948,10 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       <div class="album-form">
         <input type="text" id="albumName" placeholder="Tên album">
         <textarea id="albumDesc" placeholder="Mô tả album"></textarea>
+        <form style="margin: 10px 0;" onsubmit="return false;">
+          <label for="albumPassword" style="display: block; margin-bottom: 5px; font-size: 14px; color: #666;">Mật khẩu (tùy chọn - để tạo album riêng tư)</label>
+          <input type="password" id="albumPassword" name="albumPassword" autocomplete="new-password" placeholder="Nhập mật khẩu để bảo vệ album" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+        </form>
         <button id="createAlbumBtn">Tạo Album</button>
       </div>
       <button class="close-btn" onclick="closeAlbumModal()">Đóng</button>
@@ -1418,6 +1984,39 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
         <button onclick="confirmMoveToAlbum()">Chuyển</button>
         <button onclick="cancelMoveToAlbum()">Hủy</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Album Password Modal -->
+  <div id="albumPasswordModal" class="modal">
+    <div class="modal-content login-modal">
+      <div class="login-header">
+        <div class="brand">
+          <div class="logo">🔒</div>
+          <div>
+            <h1>Album Riêng Tư</h1>
+            <div class="tiny">Nhập mật khẩu để truy cập album</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="passwordError" class="error-box" style="display: none;"></div>
+
+      <form id="albumPasswordForm" style="display:flex; flex-direction:column; gap:12px;" onsubmit="handleAlbumPasswordSubmit(event)">
+        <input type="text" name="username" value="album_user" style="display:none;" autocomplete="username" aria-hidden="true">
+        <div>
+          <label for="albumPasswordInput">Mật khẩu album</label>
+          <input id="albumPasswordInput" name="password" autocomplete="current-password" type="password" placeholder="••••••••" required>
+        </div>
+        <div style="display:none;">
+          <label for="albumPasswordUsername">Username</label>
+          <input type="text" id="albumPasswordUsername" name="username" value="album_user" autocomplete="username" aria-hidden="true">
+        </div>
+        <div class="row">
+          <div class="muted tiny">Album: <strong id="albumPasswordName"></strong></div>
+          <button id="albumPasswordSubmitBtn" class="primary" type="submit">Mở Album</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1462,7 +2061,52 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     </div>
   </div>
 
-  <script src="secret-page.js?v=<?php echo time(); ?>"></script>
+  <script src="secret-page.js?v=<?php echo time(); ?>" defer></script>
+
+  <!-- Service Worker Registration for Performance -->
+  <script>
+    // Global variable to track service worker updates
+    window.serviceWorkerUpdateAvailable = false;
+
+    // Register service worker immediately for better performance
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then(function(registration) {
+          console.log('Service Worker registered successfully:', registration.scope);
+
+          // Handle updates - just mark as available, don't prompt automatically
+          registration.addEventListener('updatefound', function() {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', function() {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New version available - mark it but don't prompt
+                window.serviceWorkerUpdateAvailable = true;
+                console.log('Service Worker update available - use admin button to apply');
+              }
+            });
+          });
+        })
+        .catch(function(error) {
+          console.log('Service Worker registration failed:', error);
+        });
+    }
+
+    // Function to check and apply service worker updates (admin only)
+    window.checkForUpdates = function() {
+      if (!document.body.classList.contains('admin')) {
+        alert('Admin access required');
+        return;
+      }
+
+      if (window.serviceWorkerUpdateAvailable) {
+        if (confirm('A new version is available. Reload to update?')) {
+          window.location.reload();
+        }
+      } else {
+        alert('No updates available. Your app is up to date!');
+      }
+    };
+  </script>
   <script>
   // Global variables
   let currentRating = 0;
@@ -1472,6 +2116,22 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
   let pendingFiles = [];
   let selectedPhotosForMove = [];
   let currentPhotoIndex = -1;
+  let selectModeEnabled = localStorage.getItem('selectModeEnabled') === 'true'; // Default to false
+
+  // Album password unlock tracking (temporary per session)
+  window.temporarilyUnlockedAlbums = {};
+
+  // Pagination variables
+  let currentOffset = 0;
+  let isLoadingMore = false;
+  let hasMorePhotos = true;
+  const photosPerLoad = 35; // Load 35 photos at a time
+
+
+  // Swipe variables for modal
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let isSwiping = false;
 
   // === Download Photo Function ===
   window.downloadPhoto = function(filename) {
@@ -1490,6 +2150,28 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // === Backup to Wayback Machine Function ===
+  window.backupToWayback = function() {
+    if (!document.body.classList.contains('admin')) {
+      alert('Admin access required for backup');
+      return;
+    }
+
+    const waybackUrl = 'https://web.archive.org/save/khanh.cloud';
+
+    fetch(waybackUrl, {
+      method: 'GET',
+      mode: 'no-cors' // Required for cross-origin requests to Wayback Machine
+    })
+    .then(() => {
+      alert('Backup request sent to Wayback Machine! Archiving may take some time.');
+    })
+    .catch(error => {
+      console.log('Wayback Machine request sent (CORS prevents response reading)');
+      alert('Backup request sent to Wayback Machine! Check archive.org later to confirm.');
+    });
   };
 
   // === Feedback System Functions ===
@@ -1573,7 +2255,6 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       }
     })
     .catch(error => {
-      console.error('Feedback submission error:', error);
       alert('Network error. Please try again.');
     })
     .finally(() => {
@@ -1620,7 +2301,6 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       }
     })
     .catch(error => {
-      console.error('Feedback deletion error:', error);
       alert('Network error. Please try again.');
     })
     .finally(() => {
@@ -1663,7 +2343,6 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       }
     })
     .catch(error => {
-      console.error('Admin feedback deletion error:', error);
       alert('Network error. Please try again.');
     });
   };
@@ -1746,9 +2425,111 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       checkUserFeedback(filename);
     })
     .catch(error => {
-      console.error('Error loading feedback stats:', error);
       statsDiv.innerHTML = '<div style="color: #ff6b6b; font-size: 12px;">Error loading feedback stats</div>';
     });
+  }
+
+  // Load more photos function
+  window.loadMorePhotos = function() {
+    console.log('loadMorePhotos called: hasMorePhotos =', hasMorePhotos, 'isLoadingMore =', isLoadingMore);
+    if (!hasMorePhotos || isLoadingMore) {
+      console.log('Load more blocked: hasMorePhotos =', hasMorePhotos, 'isLoadingMore =', isLoadingMore);
+      return;
+    }
+
+    console.log('📥 Loading 35 more photos...');
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    const loadingMore = document.getElementById('loadingMore');
+
+    // Show loading state
+    loadMoreBtn.style.display = 'none';
+    loadingMore.style.display = 'block';
+
+    // Load more photos
+    loadGallery(false, true);
+  };
+
+  // Update load more button visibility
+  window.updateLoadMoreButton = function() {
+    const loadMoreContainer = document.getElementById('loadMoreContainer');
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+    const loadingMore = document.getElementById('loadingMore');
+
+    console.log('updateLoadMoreButton called: hasMorePhotos =', hasMorePhotos, 'photos.length =', photos.length);
+
+    if (hasMorePhotos && photos.length > 0) {
+      loadMoreContainer.style.display = 'block';
+      loadMoreBtn.style.display = 'inline-block';
+      loadingMore.style.display = 'none';
+      console.log('Load more button shown');
+
+      // Preload next batch when approaching the end
+      if (photos.length >= photosPerLoad && hasMorePhotos) {
+        preloadNextBatch();
+      }
+    } else {
+      loadMoreContainer.style.display = 'none';
+      console.log('Load more button hidden');
+    }
+  }
+
+  // Preload next batch of images for instant loading
+  function preloadNextBatch() {
+    if (!hasMorePhotos || isLoadingMore) return;
+
+    // Use requestIdleCallback for CPU-friendly preloading
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        performPreload();
+      }, { timeout: 2000 }); // Timeout after 2 seconds if no idle time
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      setTimeout(performPreload, 100);
+    }
+
+    function performPreload() {
+      const nextOffset = currentOffset;
+      const nextLimit = photosPerLoad;
+
+      // Fetch next batch data without rendering
+      const albumFilter = albumSelect.value || 'all';
+      const sortBy = 'date';
+      const sortOrder = 'desc';
+
+      const url = `list.php?album=${encodeURIComponent(albumFilter)}&sort=${encodeURIComponent(sortBy)}&order=${encodeURIComponent(sortOrder)}&limit=${nextLimit}&offset=${nextOffset}`;
+
+      // Get temporarily unlocked albums
+      const unlockedAlbums = window.temporarilyUnlockedAlbums ? JSON.stringify(window.temporarilyUnlockedAlbums) : '{}';
+
+      fetch(url, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-Unlocked-Albums': unlockedAlbums
+        }
+      })
+      .then(r => r.json())
+      .then(nextPhotos => {
+        if (nextPhotos && nextPhotos.length > 0) {
+          // Preload the first few images of the next batch
+          const preloadCount = Math.min(3, nextPhotos.length);
+          for (let i = 0; i < preloadCount; i++) {
+            const imgSrc = nextPhotos[i].full_image || ("uploads/" + encodeURIComponent(nextPhotos[i].filename));
+            const img = new Image();
+            img.src = imgSrc;
+          }
+        }
+      })
+      .catch(error => {
+        // Silently fail - preloading is not critical
+      });
+    }
+  }
+
+  // Reset pagination when filters change
+  window.resetPagination = function() {
+    currentOffset = 0;
+    hasMorePhotos = true;
+    isLoadingMore = false;
   }
 
   function checkUserFeedback(filename) {
@@ -1773,12 +2554,12 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       }
     })
     .catch(error => {
-      console.error('Error checking user feedback:', error);
+      // Error checking user feedback - silently fail
     });
   }
 
   // Admin Login Modal Functions - Make them globally accessible
-  function showLoginModal() {
+  window.showLoginModal = function() {
     const modal = document.getElementById('adminLoginModal');
     if (!modal) return;
 
@@ -1803,13 +2584,20 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     }
   }
 
-  function hideLoginModal() {
+  window.hideLoginModal = function() {
     const modal = document.getElementById('adminLoginModal');
     if (modal) modal.style.display = 'none';
   }
 
   console.log('Script loaded, waiting for DOMContentLoaded');
+  // Performance logging for script execution
+  const scriptStartTime = performance.now();
+  console.log('🚀 Script execution started at:', scriptStartTime);
+
   document.addEventListener('DOMContentLoaded', function() {
+    const domReadyTime = performance.now();
+    console.log('📊 DOMContentLoaded fired at:', domReadyTime, 'ms from script start');
+    console.log('⏱️ Time from script start to DOM ready:', (domReadyTime - scriptStartTime).toFixed(2), 'ms');
     const fileInput = document.getElementById("fileInput");
     const folderInput = document.getElementById("folderInput");
     const uploadBtn = document.getElementById("uploadBtn");
@@ -1819,12 +2607,9 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
     const progressBar = document.getElementById("progressBar");
     const uploadStatus = document.getElementById("uploadStatus");
     const spinner = document.getElementById("spinner");
-    const storageInfo = document.getElementById("storageInfo");
     const modal = document.getElementById("modal");
     const modalImg = document.getElementById("modalImg");
     const modalInfo = document.getElementById("modalInfo");
-    const searchInput = document.getElementById("searchInput");
-    const sortSelect = document.getElementById("sortSelect");
     const albumSelect = document.getElementById("albumSelect");
     const albumBtn = document.getElementById("albumBtn");
     const albumModal = document.getElementById("albumModal");
@@ -1851,11 +2636,26 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
       function handleFiles(files) {
         if (!files.length) return;
         pendingFiles = files;
-        loadAlbumsForUpload();
-        uploadAlbumModal.style.display = "flex";
+
+        // Check if we're currently viewing a private album that we've unlocked
+        const currentAlbum = albumSelect.value;
+        const selectedAlbum = albums.find(a => a.id == currentAlbum);
+
+        if (currentAlbum && currentAlbum !== 'all' && selectedAlbum && selectedAlbum.password &&
+            window.temporarilyUnlockedAlbums && window.temporarilyUnlockedAlbums[currentAlbum]) {
+          // We're in a private album that we've unlocked - upload directly here
+          console.log('🔓 Uploading directly to unlocked private album:', currentAlbum, '- Album name:', selectedAlbum.name);
+          selectedAlbumForUpload = currentAlbum;
+          proceedUpload();
+        } else {
+          // Normal flow - show album selection modal
+          console.log('📂 Showing album selection modal for upload');
+          loadAlbumsForUpload();
+          uploadAlbumModal.style.display = "flex";
+        }
       }
 
-      function proceedUpload() {
+      window.proceedUpload = function() {
         if (!selectedAlbumForUpload) {
           alert("Vui lòng chọn album!");
           return;
@@ -1878,6 +2678,20 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
           uploadStatus.style.display = "none";
           progressWrapper.style.display = "none";
           progressBar.style.width = "0%";
+
+          // If uploading to a specific album (not "all"), automatically unlock it for viewing and switch to it
+          if (selectedAlbumForUpload && selectedAlbumForUpload !== "all") {
+            if (!window.temporarilyUnlockedAlbums) {
+              window.temporarilyUnlockedAlbums = {};
+            }
+            window.temporarilyUnlockedAlbums[selectedAlbumForUpload] = true;
+            console.log('🔓 Automatically unlocked album after upload:', selectedAlbumForUpload);
+
+            // Switch to the uploaded album
+            albumSelect.value = selectedAlbumForUpload;
+            console.log('📂 Switched to uploaded album:', selectedAlbumForUpload);
+          }
+
           loadGallery();
           fileInput.value = "";
           folderInput.value = "";
@@ -1886,7 +2700,7 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
         })();
       }
 
-      function cancelUpload() {
+      window.cancelUpload = function() {
         uploadAlbumModal.style.display = "none";
         pendingFiles = [];
         selectedAlbumForUpload = null;
@@ -1942,143 +2756,401 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
           if (albumId) {
             formData.append("album_id", albumId);
           }
+
           const xhr = new XMLHttpRequest();
           xhr.open("POST", "upload.php", true);
+
           xhr.upload.onprogress = e => {
             if (e.lengthComputable) {
-              // Tiến trình từng file
+              const percentComplete = Math.round((e.loaded / e.total) * 100);
+              console.log(`📊 Upload progress for ${file.name}: ${percentComplete}% (${Math.round(e.loaded / 1024)} KB / ${Math.round(e.total / 1024)} KB)`);
             }
           };
-          xhr.onload = () => resolve();
+
+          xhr.onload = () => {
+            if (xhr.status === 200) {
+              console.log(`✅ Server response for ${file.name}: Success`);
+            } else {
+              console.warn(`⚠️ Server response for ${file.name}: HTTP ${xhr.status}`);
+            }
+            resolve();
+          };
+
           xhr.onerror = () => {
+            console.error(`❌ Upload failed for ${file.name}: Network error`);
             alert(`Upload thất bại: ${file.name}`);
             resolve();
           };
+
+          console.log(`🔄 Starting upload for ${file.name} to album ID: ${albumId || 'none (All Photos)'}`);
           xhr.send(formData);
         });
       }
 
-      // === Storage info ===
-      function loadStorage() {
-        fetch("storage.php", {
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        })
-          .then(r => r.text())
-          .then(txt => storageInfo.innerHTML = "💾 " + txt)
-          .catch(() => storageInfo.textContent = "💾 Error");
-      }
 
-      // === Gallery ===
-      function renderPhotos(photosData) {
-        photos = photosData;
-        gallery.innerHTML = "";
+      // === Gallery with Pagination ===
+      // Pagination variables are now global at the top of the script
+      // Loads 35 photos initially, then 35 more with "Load More" button
 
-        // Update photo count
-        updatePhotoCount(photos.length);
+      window.renderPhotos = function(photosData, append = false) {
+        const renderStartTime = performance.now();
+        console.log('🎨 Starting to render', photosData.length, 'photos at:', renderStartTime, append ? '(appending)' : '(initial)');
 
-        if (!photos.length) {
-          gallery.innerHTML = '<p class="empty">Chưa có ảnh nào</p>';
+        if (!photos.length && !append) {
+          gallery.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><h3>No Photos Yet</h3><p>Upload some photos to get started!</p><button class="btn primary" onclick="document.getElementById(\'uploadBtn\').click()">Upload Photos</button></div>';
           return;
         }
-        photos.forEach((p, index) => {
-          const card = document.createElement("div");
-          card.className = "photo-card";
-          card.dataset.index = index;
 
-          <?php if ($isAdmin): ?>
+        // Skip preloading for now to avoid warnings
+
+        // Use requestAnimationFrame for better performance
+        requestAnimationFrame(() => {
+          // Pre-calculate common values to reduce computation
+          const isAdminMode = document.body.classList.contains('admin');
+
+          // Use document fragment for better performance
+          const fragment = document.createDocumentFragment();
+
+          // Process photos in batches to prevent blocking - smaller batches for faster initial render
+          const batchSize = append ? 10 : 5; // Smaller batches for initial load
+          let currentIndex = 0;
+
+          function processBatch() {
+            const endIndex = Math.min(currentIndex + batchSize, photosData.length);
+
+            for (let i = currentIndex; i < endIndex; i++) {
+              const p = photosData[i];
+              const cardIndex = append ? (photos.length - photosData.length + i) : i;
+              const card = createPhotoCardOptimized(p, cardIndex, isAdminMode);
+              fragment.appendChild(card);
+            }
+
+            currentIndex = endIndex;
+
+            if (currentIndex < photosData.length) {
+              // Process next batch asynchronously
+              setTimeout(processBatch, 0);
+            } else {
+              // All batches processed
+              if (append) {
+                // Append to existing gallery
+                gallery.appendChild(fragment);
+              } else {
+                // Clear gallery and add new content
+                while (gallery.firstChild) {
+                  gallery.removeChild(gallery.firstChild);
+                }
+                gallery.appendChild(fragment);
+              }
+
+              const renderEndTime = performance.now();
+              console.log('✅ Finished rendering photos at:', renderEndTime);
+              console.log('⏱️ Total render time:', (renderEndTime - renderStartTime).toFixed(2), 'ms');
+              console.log('📈 Average time per photo:', ((renderEndTime - renderStartTime) / photosData.length).toFixed(2), 'ms');
+            }
+          }
+
+          // Start processing first batch
+          processBatch();
+        });
+      }
+
+
+      // Optimized photo card creation function
+      window.createPhotoCardOptimized = function(p, index, isAdminMode) {
+        const card = document.createElement("div");
+        card.className = "photo-card";
+        card.dataset.index = index;
+
+        // Create responsive image element with blur placeholder
+        const img = document.createElement("img");
+        img.decoding = "async";
+        img.alt = p.filename;
+        img.dataset.full = p.full_image || ("uploads/" + encodeURIComponent(p.filename));
+
+        // Priority loading for above-the-fold images (first 6 images)
+        if (index < 6) {
+            img.loading = "eager";
+            img.fetchPriority = "high";
+        } else {
+            img.loading = "lazy";
+            img.fetchPriority = "low";
+        }
+
+        img.style.cssText = 'width: 100%; height: 200px; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s ease;';
+
+        // Set blur placeholder for better perceived performance
+        if (p.blur_placeholder) {
+            img.style.backgroundImage = `url(${p.blur_placeholder})`;
+            img.style.backgroundSize = 'cover';
+            img.style.backgroundPosition = 'center';
+        }
+
+        // Use direct image URLs for now (serve_image.php can be enabled later)
+        const imageUrl = "uploads/" + encodeURIComponent(p.filename);
+
+        img.src = imageUrl;
+        img.srcset = `${imageUrl} 800w`;
+        img.sizes = '800px';
+
+        // Handle image load for smooth transitions
+        img.onload = function() {
+            this.style.opacity = '1';
+            this.style.backgroundImage = 'none'; // Remove blur placeholder
+        };
+
+        // Error handling
+        img.onerror = function() {
+            console.warn('Failed to load image:', this.src);
+            // Fallback to original image
+            if (this.src !== "uploads/" + encodeURIComponent(p.filename)) {
+                this.src = "uploads/" + encodeURIComponent(p.filename);
+            } else {
+                this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+            }
+        };
+
+        // Add WebP support if available
+        if (p.thumb_format === 'webp') {
+          // WebP is already the preferred format
+        }
+
+        // Simple error handling
+        img.onerror = function() {
+          console.warn('Failed to load image:', this.src);
+          // Fallback to original image if thumbnail fails
+          if (this.src !== "uploads/" + encodeURIComponent(p.filename)) {
+            this.src = "uploads/" + encodeURIComponent(p.filename);
+          } else {
+            this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+          }
+        };
+
+        card.appendChild(img);
+
+        // Add admin elements only if needed
+        if (isAdminMode) {
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
           checkbox.className = "select-photo";
           checkbox.value = p.filename;
           card.appendChild(checkbox);
-          <?php endif; ?>
 
-          const img = document.createElement("img");
-          img.loading = "lazy";
-          img.src = p.thumb;
-          img.alt = p.filename;
-          img.dataset.full = "uploads/" + encodeURIComponent(p.filename);
-          card.appendChild(img);
-
-          // Camera info overlay - Always show for better visibility
-          const cameraInfo = getCameraInfo(p.metadata);
-          const cameraOverlay = document.createElement("div");
-          cameraOverlay.className = "camera-overlay";
-
-          let settingsHtml = '';
-          if (cameraInfo.aperture || cameraInfo.focal || cameraInfo.iso) {
-            settingsHtml = `
-              <div class="camera-settings">
-                ${cameraInfo.aperture ? `<div class="setting"><div class="setting-label">f-stop</div><div class="setting-value">${cameraInfo.aperture}</div></div>` : ''}
-                ${cameraInfo.focal ? `<div class="setting"><div class="setting-label">focal</div><div class="setting-value">${cameraInfo.focal}</div></div>` : ''}
-                ${cameraInfo.iso ? `<div class="setting"><div class="setting-label">ISO</div><div class="setting-value">${cameraInfo.iso}</div></div>` : ''}
-              </div>
-            `;
-          }
-
-          cameraOverlay.innerHTML = `
-            <div class="camera-model">${cameraInfo.model}</div>
-            ${settingsHtml}
-          `;
-
-          card.appendChild(cameraOverlay);
-
-          // Album indicator
-          if (p.album_name && p.album_name !== 'General') {
-            const albumTag = document.createElement("div");
-            albumTag.className = "album-tag";
-            albumTag.textContent = p.album_name;
-            card.appendChild(albumTag);
-          }
-
-          <?php if ($isAdmin): ?>
           const del = document.createElement("button");
           del.className = "delete-btn";
           del.textContent = "🗑️";
           del.onclick = () => deleteSelected([p.filename]);
           card.appendChild(del);
-          <?php endif; ?>
+        }
 
-          gallery.appendChild(card);
-        });
+        // Add camera overlay only if metadata exists
+        if (p.metadata && Object.keys(p.metadata).length > 0) {
+          const cameraInfo = getCameraInfo(p.metadata);
+          if (cameraInfo.model !== 'Unknown Camera' || cameraInfo.aperture || cameraInfo.focal || cameraInfo.iso) {
+            const cameraOverlay = document.createElement("div");
+            cameraOverlay.className = "camera-overlay";
+
+            let settingsHtml = '';
+            if (cameraInfo.aperture || cameraInfo.focal || cameraInfo.iso) {
+              settingsHtml = `<div class="camera-settings">${
+                cameraInfo.aperture ? `<div class="setting"><div class="setting-label">f-stop</div><div class="setting-value">${cameraInfo.aperture}</div></div>` : ''
+              }${
+                cameraInfo.focal ? `<div class="setting"><div class="setting-label">focal</div><div class="setting-value">${cameraInfo.focal}</div></div>` : ''
+              }${
+                cameraInfo.iso ? `<div class="setting"><div class="setting-label">ISO</div><div class="setting-value">${cameraInfo.iso}</div></div>` : ''
+              }</div>`;
+            }
+
+            cameraOverlay.innerHTML = `<div class="camera-model">${cameraInfo.model}</div>${settingsHtml}`;
+            card.appendChild(cameraOverlay);
+          }
+        }
+
+        // Add album tag only if different from default
+        if (p.album_name && p.album_name !== 'General') {
+          const albumTag = document.createElement("div");
+          albumTag.className = "album-tag";
+          albumTag.textContent = p.album_name;
+          card.appendChild(albumTag);
+        }
+
+        return card;
       }
 
-      function loadGallery(skipAlbumReload = false) {
-        spinner.style.display = "block";
+      window.loadGallery = function(skipAlbumReload = false, append = false) {
+        if (isLoadingMore && append) return; // Prevent multiple simultaneous requests
+        if (append) isLoadingMore = true;
+
+        console.log('🎨 Starting to load gallery...', append ? '(appending)' : '(initial)');
+        if (!append) spinner.style.display = "block";
+
         const albumFilter = albumSelect.value || 'all';
-        const sortValue = sortSelect.value || 'date-desc';
-        const [sortBy, sortOrder] = sortValue.split('-');
-        const url = `list.php?album=${encodeURIComponent(albumFilter)}&sort=${encodeURIComponent(sortBy)}&order=${encodeURIComponent(sortOrder)}`;
+        const sortBy = 'date';
+        const sortOrder = 'desc';
+
+        // Use pagination for better performance
+        const limit = append ? photosPerLoad : photosPerLoad;
+        const offset = append ? currentOffset : 0;
+        const url = `list.php?album=${encodeURIComponent(albumFilter)}&sort=${encodeURIComponent(sortBy)}&order=${encodeURIComponent(sortOrder)}&limit=${limit}&offset=${offset}`;
+
+        // Prepare headers
+        const headers = {
+          'X-Requested-With': 'XMLHttpRequest'
+        };
+
+        // Send unlocked albums information for all gallery requests (needed for private album access)
+        if (window.temporarilyUnlockedAlbums && Object.keys(window.temporarilyUnlockedAlbums).length > 0) {
+          headers['X-Unlocked-Albums'] = JSON.stringify(window.temporarilyUnlockedAlbums);
+          console.log('📤 Sending unlocked albums to backend:', window.temporarilyUnlockedAlbums);
+        }
+
+        // Also check session storage for unlocked albums (fallback)
+        if (!headers['X-Unlocked-Albums']) {
+          // Try to get from session via a quick API call
+          fetch('get_unlocked_albums.php', {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+          })
+          .then(r => r.json())
+          .then(data => {
+            if (data.unlocked_albums && Object.keys(data.unlocked_albums).length > 0) {
+              headers['X-Unlocked-Albums'] = JSON.stringify(data.unlocked_albums);
+              console.log('📤 Retrieved unlocked albums from session:', data.unlocked_albums);
+            }
+          })
+          .catch(error => {
+            console.log('Failed to retrieve unlocked albums from session:', error);
+          });
+        }
 
         fetch(url, {
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
+          headers: headers
         })
         .then(r => r.json())
-        .then(photos => {
-          renderPhotos(photos);
-          spinner.style.display = "none";
-          loadStorage();
-          if (!skipAlbumReload) {
-            loadAlbums();
+        .then(newPhotos => {
+          console.log('✅ Gallery data loaded:', newPhotos.length, 'photos');
+
+          if (append) {
+            // Append new photos to existing array
+            photos = photos.concat(newPhotos);
+            currentOffset += newPhotos.length;
+            hasMorePhotos = newPhotos.length >= photosPerLoad;
+            renderPhotos(newPhotos, true); // Append mode
+            isLoadingMore = false;
+          } else {
+            // Initial load - replace all photos
+            photos = newPhotos;
+            currentOffset = newPhotos.length;
+            hasMorePhotos = newPhotos.length >= photosPerLoad;
+            console.log('Initial load: photos.length =', photos.length, 'photosPerLoad =', photosPerLoad, 'hasMorePhotos =', hasMorePhotos);
+            renderPhotos(newPhotos, false); // Replace mode
+          }
+
+          updatePhotoCount(photos.length);
+          updateLoadMoreButton();
+
+          if (!append) {
+            spinner.style.display = "none";
+            if (!skipAlbumReload) {
+              loadAlbums();
+            }
           }
         })
-        .catch(() => {
-          spinner.style.display = "none";
+        .catch(error => {
+          console.error('❌ Error loading gallery:', error);
+          if (!append) spinner.style.display = "none";
+          if (append) isLoadingMore = false;
           gallery.innerHTML = "<p class='empty'>Lỗi load gallery</p>";
         });
       }
 
-      function getSelectedFiles() {
+
+
+      function createPhotoCard(p, index) {
+        const card = document.createElement("div");
+        card.className = "photo-card";
+        card.dataset.index = index;
+
+        <?php if ($isAdmin): ?>
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "select-photo";
+        checkbox.value = p.filename;
+        card.appendChild(checkbox);
+        <?php endif; ?>
+
+        const img = document.createElement("img");
+        img.decoding = "async";
+        img.alt = p.filename;
+        img.dataset.full = "uploads/" + encodeURIComponent(p.filename);
+
+        // Use original image instead of thumbnail (GD not available)
+        img.src = "uploads/" + encodeURIComponent(p.filename);
+        img.style.width = '100%';
+        img.style.height = '200px';
+        img.style.objectFit = 'cover';
+        img.style.display = 'block';
+
+        // Add error handling
+        img.onerror = function() {
+            console.error('Failed to load image:', this.src);
+            this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjQ0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+        };
+
+        img.onload = function() {
+            console.log('Image loaded successfully:', this.src);
+        };
+
+        card.appendChild(img);
+
+        // Camera info overlay
+        const cameraInfo = getCameraInfo(p.metadata);
+        const cameraOverlay = document.createElement("div");
+        cameraOverlay.className = "camera-overlay";
+
+        let settingsHtml = '';
+        if (cameraInfo.aperture || cameraInfo.focal || cameraInfo.iso) {
+          settingsHtml = `
+            <div class="camera-settings">
+              ${cameraInfo.aperture ? `<div class="setting"><div class="setting-label">f-stop</div><div class="setting-value">${cameraInfo.aperture}</div></div>` : ''}
+              ${cameraInfo.focal ? `<div class="setting"><div class="setting-label">focal</div><div class="setting-value">${cameraInfo.focal}</div></div>` : ''}
+              ${cameraInfo.iso ? `<div class="setting"><div class="setting-label">ISO</div><div class="setting-value">${cameraInfo.iso}</div></div>` : ''}
+            </div>
+          `;
+        }
+
+        cameraOverlay.innerHTML = `
+          <div class="camera-model">${cameraInfo.model}</div>
+          ${settingsHtml}
+        `;
+
+        card.appendChild(cameraOverlay);
+
+        // Album indicator
+        if (p.album_name && p.album_name !== 'General') {
+          const albumTag = document.createElement("div");
+          albumTag.className = "album-tag";
+          albumTag.textContent = p.album_name;
+          card.appendChild(albumTag);
+        }
+
+        <?php if ($isAdmin): ?>
+        const del = document.createElement("button");
+        del.className = "delete-btn";
+        del.textContent = "🗑️";
+        del.onclick = () => deleteSelected([p.filename]);
+        card.appendChild(del);
+        <?php endif; ?>
+
+        return card;
+      }
+
+      window.getSelectedFiles = function() {
         const checkboxes = document.querySelectorAll(".select-photo:checked");
         const files = [...checkboxes].map(cb => cb.value);
         return files;
       }
 
-      function deleteSelected(files) {
+      window.deleteSelected = function(files) {
         if (!files.length) { alert("Chưa chọn ảnh nào!"); return; }
         if (!confirm("Xóa " + files.length + " ảnh?")) return;
 
@@ -2096,13 +3168,16 @@ let rightClickEnabled = localStorage.getItem('rightClickEnabled') !== 'false'; /
           if (resp.success) loadGallery();
           else alert("Xóa thất bại: " + (resp.error || "Unknown error"));
         }).catch(error => {
-          console.error('Delete error:', error);
           alert("Lỗi kết nối khi xóa!");
         });
       }
 
 function updateModalInfo(index) {
   const photo = photos[index];
+
+  // Add fade-out animation before changing photo
+  modalImg.classList.add('fade-out');
+  modalImg.classList.remove('fade-in');
 
   // Show loading state
   modalImg.classList.add('loading');
@@ -2124,20 +3199,44 @@ function updateModalInfo(index) {
       modalImg.classList.remove('loading');
       modalImg.classList.add('loaded');
       spinner.remove();
+
+      // Add fade-in animation after image loads
+      setTimeout(() => {
+        modalImg.classList.remove('fade-out');
+        modalImg.classList.add('fade-in');
+      }, 50);
+
       resolve();
     };
     modalImg.onerror = () => {
       spinner.remove();
-      reject();
+      modalImg.classList.remove('fade-out');
+      modalImg.classList.add('fade-in');
+      // Show a placeholder or error message instead of rejecting
+      modalImg.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBub3QgZm91bmQ8L3RleHQ+PC9zdmc+';
+      resolve(); // Resolve instead of reject to prevent unhandled promise
     };
-    modalImg.src = "uploads/" + encodeURIComponent(photo.filename);
+    // Use direct image URL for viewing
+    const fullImageSrc = "uploads/" + encodeURIComponent(photo.filename);
+    modalImg.src = fullImageSrc;
   });
 
   // Reset rating and initialize stars
   currentRating = 0;
+
+  // Add fade-out animation to info panel
+  modalInfo.classList.add('fade-out');
+  modalInfo.classList.remove('fade-in');
+
   setTimeout(() => {
     initRatingStars();
     loadFeedbackStats(photo.filename);
+
+    // Fade info panel back in after content updates
+    setTimeout(() => {
+      modalInfo.classList.remove('fade-out');
+      modalInfo.classList.add('fade-in');
+    }, 150);
   }, 100);
 
   // Build info
@@ -2187,18 +3286,6 @@ function updateModalInfo(index) {
   const exposureMode = md.EXIF?.ExposureMode || "";
   const meteringMode = md.EXIF?.MeteringMode || "";
 
-  // Debug EXIF data
-  console.log('EXIF Debug for:', photo.filename);
-  console.log('Full metadata:', md);
-  console.log('EXIF data:', md.EXIF);
-  console.log('Camera Model:', md.EXIF?.Model, md.IFD0?.Model);
-  console.log('Shutter Speed fields:', {
-    ExposureTime: md.EXIF?.ExposureTime,
-    ShutterSpeedValue: md.EXIF?.ShutterSpeedValue,
-    ShutterSpeed: md.EXIF?.ShutterSpeed
-  });
-  console.log('Device Make:', md.EXIF?.Make, md.IFD0?.Make);
-  console.log('Date Taken:', md.EXIF?.DateTimeOriginal, md.EXIF?.DateTime);
 
   info += `
     <div class="camera-info" style="margin-bottom: 20px;">
@@ -2219,10 +3306,9 @@ function updateModalInfo(index) {
   return imgPromise;
 }
 
-function formatShutterSpeed(exposureTime) {
+window.formatShutterSpeed = function(exposureTime) {
   if (!exposureTime) return "Unknown";
 
-  console.log('Shutter speed input:', exposureTime, typeof exposureTime);
 
   let time = exposureTime;
 
@@ -2254,7 +3340,6 @@ function formatShutterSpeed(exposureTime) {
 
   time = parseFloat(time);
 
-  console.log('Parsed shutter speed:', time);
 
   if (isNaN(time) || time <= 0) return "Unknown";
 
@@ -2278,7 +3363,7 @@ function formatShutterSpeed(exposureTime) {
   return "Unknown";
 }
 
-function formatDate(dateString) {
+window.formatDate = function(dateString) {
   try {
     // Handle EXIF date format: "2023:12:25 14:30:45"
     const date = new Date(dateString.replace(/:/g, '-'));
@@ -2291,7 +3376,7 @@ function formatDate(dateString) {
   }
 }
 
-function getCameraInfo(metadata) {
+window.getCameraInfo = function(metadata) {
   if (!metadata) {
     return {
       hasInfo: true,
@@ -2310,7 +3395,6 @@ function getCameraInfo(metadata) {
   const model = exif.Model || ifd0.Model || 'Unknown Camera';
   const cameraModel = make && make !== model ? `${make} ${model}` : model;
 
-  console.log('Camera detection:', { make, model, cameraModel });
 
   // Format aperture/f-stop correctly from APEX value
   let aperture = null;
@@ -2401,13 +3485,6 @@ function getCameraInfo(metadata) {
     }
   }
 
-  console.log('Aperture detection:', {
-    FNumber: exif.FNumber,
-    FNumberType: typeof exif.FNumber,
-    ApertureValue: exif.ApertureValue,
-    ApertureValueType: typeof exif.ApertureValue,
-    result: aperture
-  });
 
   // Format focal length correctly
   let focal = null;
@@ -2445,12 +3522,10 @@ function getCameraInfo(metadata) {
     }
   }
 
-  console.log('Focal length detection:', { FocalLength: exif.FocalLength, result: focal });
 
   // Format ISO nicely - try multiple field names
   const iso = exif.ISOSpeedRatings || exif.ISO || exif.ISOSpeed || null;
 
-  console.log('ISO detection:', { ISOSpeedRatings: exif.ISOSpeedRatings, ISO: exif.ISO, ISOSpeed: exif.ISOSpeed, result: iso });
 
   return {
     hasInfo: true,
@@ -2475,23 +3550,18 @@ function preloadAdjacentImages(currentIndex) {
   if (!photos || !photos.length) return;
 
   const preloadPromises = [];
+  const maxPreload = 4; // Preload up to 4 adjacent images
 
-  // Preload next image
-  if (currentIndex < photos.length - 1) {
-    const nextSrc = "uploads/" + encodeURIComponent(photos[currentIndex + 1].filename);
+  // Preload next images (higher priority)
+  for (let i = 1; i <= maxPreload && currentIndex + i < photos.length; i++) {
+    const nextSrc = "uploads/" + encodeURIComponent(photos[currentIndex + i].filename);
     preloadPromises.push(preloadImage(nextSrc));
   }
 
-  // Preload previous image
-  if (currentIndex > 0) {
-    const prevSrc = "uploads/" + encodeURIComponent(photos[currentIndex - 1].filename);
+  // Preload previous images (lower priority)
+  for (let i = 1; i <= 2 && currentIndex - i >= 0; i++) {
+    const prevSrc = "uploads/" + encodeURIComponent(photos[currentIndex - i].filename);
     preloadPromises.push(preloadImage(prevSrc));
-  }
-
-  // Preload next 2 images for better performance
-  if (currentIndex < photos.length - 2) {
-    const nextNextSrc = "uploads/" + encodeURIComponent(photos[currentIndex + 2].filename);
-    preloadPromises.push(preloadImage(nextNextSrc));
   }
 
   return Promise.all(preloadPromises);
@@ -2510,6 +3580,22 @@ gallery.addEventListener("click", (e) => {
     return;
   }
 
+  // If select mode is enabled, toggle checkbox instead of opening modal
+  if (selectModeEnabled && document.body.classList.contains('admin')) {
+    const checkbox = card.querySelector('.select-photo');
+    if (checkbox) {
+      // Provide haptic feedback on mobile devices
+      if (navigator.vibrate && 'ontouchstart' in window) {
+        navigator.vibrate(10);
+      }
+
+      checkbox.checked = !checkbox.checked;
+      e.preventDefault();
+      console.log(`Photo ${checkbox.checked ? 'selected' : 'deselected'}`);
+      return;
+    }
+  }
+
   e.preventDefault();
   currentPhotoIndex = parseInt(card.dataset.index, 10);
   modal.style.display = "flex";
@@ -2520,27 +3606,57 @@ gallery.addEventListener("click", (e) => {
   updateModalInfo(currentPhotoIndex);
 });
 
+
+// Photo navigation with animations
+function navigatePhoto(direction) {
+  let newIndex = currentPhotoIndex;
+
+  if (direction === 'prev' && currentPhotoIndex > 0) {
+    newIndex = currentPhotoIndex - 1;
+    // Add slide animation for previous photo
+    modalImg.classList.add('slide-right');
+    modalImg.classList.remove('slide-center');
+  } else if (direction === 'next' && currentPhotoIndex < photos.length - 1) {
+    newIndex = currentPhotoIndex + 1;
+    // Add slide animation for next photo
+    modalImg.classList.add('slide-left');
+    modalImg.classList.remove('slide-center');
+  }
+
+  if (newIndex !== currentPhotoIndex) {
+    currentPhotoIndex = newIndex;
+    // Preload images for the new position
+    preloadAdjacentImages(currentPhotoIndex);
+
+    // Animate to center after a brief delay
+    setTimeout(() => {
+      modalImg.classList.remove('slide-left', 'slide-right');
+      modalImg.classList.add('slide-center');
+      updateModalInfo(currentPhotoIndex);
+    }, 150);
+  }
+}
+
 // Global keyboard event listener for F12 and other keys
 document.addEventListener("keydown", (e) => {
   if (e.key === "F12") {
-    // Don't prevent default - allow dev tools to open
+    if (!document.body.classList.contains('admin')) {
+      e.preventDefault();
+      alert('Developer tools are disabled for regular users.');
+      return;
+    }
+    // Allow dev tools for admin
     return;
   }
 
   if (modal.style.display !== "flex") return;
 
-  if (e.key === "ArrowLeft" && currentPhotoIndex > 0) {
+  if (e.key === "ArrowLeft") {
     e.preventDefault();
-    currentPhotoIndex--;
-    // Preload images for the new position
-    preloadAdjacentImages(currentPhotoIndex);
-    updateModalInfo(currentPhotoIndex);
-  } else if (e.key === "ArrowRight" && currentPhotoIndex < photos.length - 1) {
+    navigatePhoto('prev');
+  } else if (e.key === "ArrowRight") {
     e.preventDefault();
-    currentPhotoIndex++;
-    // Preload images for the new position
-    preloadAdjacentImages(currentPhotoIndex);
-    updateModalInfo(currentPhotoIndex);
+    navigatePhoto('next');
   } else if (e.key === "Escape") {
     e.preventDefault();
     modal.style.display = "none";
@@ -2559,6 +3675,60 @@ modal.addEventListener("click", (e) => {
     currentPhotoIndex = -1;
   }
 });
+
+// Swipe controls for mobile devices in modal
+modal.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    isSwiping = true;
+  }
+}, { passive: true });
+
+modal.addEventListener('touchmove', (e) => {
+  if (!isSwiping || e.touches.length !== 1) return;
+
+  const touch = e.touches[0];
+  const deltaX = touch.clientX - touchStartX;
+  const deltaY = touch.clientY - touchStartY;
+
+  // If vertical movement is greater than horizontal, don't treat as swipe
+  if (Math.abs(deltaY) > Math.abs(deltaX)) {
+    isSwiping = false;
+    return;
+  }
+
+  // Prevent default if it's a horizontal swipe
+  if (Math.abs(deltaX) > 10) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+modal.addEventListener('touchend', (e) => {
+  if (!isSwiping) return;
+
+  const touchEndX = e.changedTouches[0].clientX;
+  const touchEndY = e.changedTouches[0].clientY;
+  const deltaX = touchEndX - touchStartX;
+  const deltaY = touchEndY - touchStartY;
+
+  // Check if it's a valid swipe: horizontal distance > 50px, vertical < 30px
+  if (Math.abs(deltaX) > 50 && Math.abs(deltaY) < 30) {
+    if (deltaX > 0 && currentPhotoIndex > 0) {
+      // Swipe right - previous photo
+      currentPhotoIndex--;
+      preloadAdjacentImages(currentPhotoIndex);
+      updateModalInfo(currentPhotoIndex);
+    } else if (deltaX < 0 && currentPhotoIndex < photos.length - 1) {
+      // Swipe left - next photo
+      currentPhotoIndex++;
+      preloadAdjacentImages(currentPhotoIndex);
+      updateModalInfo(currentPhotoIndex);
+    }
+  }
+
+  isSwiping = false;
+}, { passive: true });
 
 // Close modal with X button
 const modalCloseBtn = document.getElementById("modalCloseBtn");
@@ -2610,7 +3780,6 @@ if (modalCloseBtn) {
             renderAlbumList();
           })
           .catch(error => {
-            console.error('Error loading albums:', error);
             albums = [{
               id: 'all',
               name: '📸 All Photos',
@@ -2653,7 +3822,6 @@ if (modalCloseBtn) {
             });
           })
           .catch(error => {
-            console.error('Error loading albums for upload:', error);
             albums = [];
             uploadAlbumSelect.innerHTML = '<option value="">Chọn album...</option>';
           });
@@ -2672,7 +3840,10 @@ if (modalCloseBtn) {
         albums.forEach(album => {
           const option = document.createElement("option");
           option.value = album.id;
-          option.textContent = album.name || 'Unknown';
+
+          // Add lock icon for password-protected albums
+          const lockIcon = album.password ? '🔒 ' : '';
+          option.textContent = lockIcon + (album.name || 'Unknown');
 
           // Preserve the current selection, or default to "All Photos" if none selected
           if (album.id === currentSelection) {
@@ -2705,10 +3876,12 @@ if (modalCloseBtn) {
         realAlbums.forEach(album => {
           const div = document.createElement("div");
           div.className = "album-item";
+          const passwordDisplay = album.password ? `<br><small style="color: #666;">Mật khẩu: "${album.password}"</small>` : '';
           div.innerHTML = `
             <div>
               <strong>${album.name || 'Unknown'}</strong>
               <br><small>${album.description || 'Không có mô tả'}</small>
+              ${passwordDisplay}
             </div>
             <div>
               <button onclick="editAlbum(${album.id})">Sửa</button>
@@ -2719,9 +3892,10 @@ if (modalCloseBtn) {
         });
       }
 
-      function createAlbum() {
+      window.createAlbum = function() {
         const name = document.getElementById("albumName").value.trim();
         const desc = document.getElementById("albumDesc").value.trim();
+        const password = document.getElementById("albumPassword").value.trim();
 
         if (!name) {
           alert("Vui lòng nhập tên album!");
@@ -2734,7 +3908,7 @@ if (modalCloseBtn) {
             "Content-Type": "application/json",
             'X-Requested-With': 'XMLHttpRequest'
           },
-          body: JSON.stringify({ name, description: desc, csrf: CSRF_TOKEN })
+          body: JSON.stringify({ name, description: desc, password: password || null, csrf: CSRF_TOKEN })
         })
         .then(r => r.json())
         .then(resp => {
@@ -2742,13 +3916,14 @@ if (modalCloseBtn) {
             loadAlbums();
             document.getElementById("albumName").value = "";
             document.getElementById("albumDesc").value = "";
+            document.getElementById("albumPassword").value = "";
           } else {
             alert("Lỗi tạo album: " + resp.error);
           }
         });
       }
 
-      function deleteAlbum(id) {
+      window.deleteAlbum = function(id) {
         if (!confirm("Xóa album này? Tất cả ảnh sẽ được chuyển về album chung.")) return;
 
         fetch(`albums.php?id=${id}&csrf=${encodeURIComponent(CSRF_TOKEN)}`, {
@@ -2767,7 +3942,7 @@ if (modalCloseBtn) {
           });
       }
 
-      function editAlbum(id) {
+      window.editAlbum = function(id) {
         const album = albums.find(a => a.id == id);
         if (!album) return;
 
@@ -2776,13 +3951,26 @@ if (modalCloseBtn) {
 
         const newDesc = prompt("Mô tả mới:", album.description || "");
 
+        // Show current password if it exists
+        const currentPassword = album.password || "";
+        const passwordPrompt = currentPassword ?
+          `Mật khẩu hiện tại: "${currentPassword}"\n\nNhập mật khẩu mới (để trống để giữ nguyên):` :
+          "Nhập mật khẩu mới (tùy chọn):";
+        const newPassword = prompt(passwordPrompt, currentPassword);
+
         fetch("albums.php", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             'X-Requested-With': 'XMLHttpRequest'
           },
-          body: JSON.stringify({ id, name: newName, description: newDesc, csrf: CSRF_TOKEN })
+          body: JSON.stringify({
+            id,
+            name: newName,
+            description: newDesc,
+            password: newPassword || null,
+            csrf: CSRF_TOKEN
+          })
         })
         .then(r => r.json())
         .then(resp => {
@@ -2809,9 +3997,19 @@ if (modalCloseBtn) {
 
       window.proceedUpload = function() {
         if (!selectedAlbumForUpload) {
+          console.error('❌ No album selected for upload');
           alert("Vui lòng chọn album!");
           return;
         }
+
+        // Get album name for logging
+        const albumInfo = albums.find(a => a.id == selectedAlbumForUpload);
+        const albumName = albumInfo ? albumInfo.name : (selectedAlbumForUpload === 'all' ? 'All Photos' : 'Unknown');
+        const isPrivate = albumInfo && albumInfo.password ? '🔒 Private' : '🔓 Public';
+
+        console.log('🚀 Starting upload process via album selection modal...');
+        console.log('📁 Target album:', selectedAlbumForUpload, '-', albumName, '-', isPrivate);
+        console.log('📄 Files to upload:', pendingFiles.length, 'files');
 
         uploadAlbumModal.style.display = "none";
         let uploaded = 0;
@@ -2820,11 +4018,21 @@ if (modalCloseBtn) {
 
         (async () => {
           for (const f of pendingFiles) {
+            console.log(`📤 Uploading file ${uploaded + 1}/${pendingFiles.length}:`, f.name, `(${Math.round(f.size / 1024)} KB)`);
             uploadStatus.textContent = `Đang upload: ${f.name}`;
-            await uploadOne(f, selectedAlbumForUpload);
+
+            // Handle "All Photos" selection - pass null for album_id
+            const albumId = selectedAlbumForUpload === "all" ? null : selectedAlbumForUpload;
+            await uploadOne(f, albumId);
             uploaded++;
-            progressBar.style.width = (uploaded / pendingFiles.length * 100) + "%";
+            const progressPercent = (uploaded / pendingFiles.length * 100);
+            progressBar.style.width = progressPercent + "%";
+            console.log(`✅ File ${uploaded}/${pendingFiles.length} uploaded successfully - Progress: ${Math.round(progressPercent)}%`);
           }
+
+          console.log('🎉 Upload process completed!');
+          console.log('📊 Summary:', uploaded, 'files uploaded to album:', selectedAlbumForUpload, '-', albumName);
+
           uploadStatus.style.display = "none";
           progressWrapper.style.display = "none";
           progressBar.style.width = "0%";
@@ -2876,7 +4084,6 @@ if (modalCloseBtn) {
           }
         })
         .catch(error => {
-          console.error('Error moving photos:', error);
           alert("Lỗi kết nối khi chuyển ảnh!");
         });
       };
@@ -2886,9 +4093,28 @@ if (modalCloseBtn) {
         selectedPhotosForMove = [];
       };
 
-      function closeAlbumModal() {
+      window.closeAlbumModal = function() {
         albumModal.style.display = "none";
       }
+
+      // Album password functionality
+      window.showAlbumPasswordModal = function(albumId, albumName) {
+        console.log('🔐 Showing password modal for album:', albumId, albumName);
+        document.getElementById('albumPasswordName').textContent = albumName;
+        document.getElementById('albumPasswordInput').value = '';
+        document.getElementById('passwordError').style.display = 'none';
+        document.getElementById('albumPasswordModal').style.display = 'flex';
+        document.getElementById('albumPasswordInput').focus();
+
+        // Store album ID for verification
+        window.currentAlbumForPassword = albumId;
+        console.log('💾 Stored currentAlbumForPassword:', window.currentAlbumForPassword);
+      };
+
+      window.hideAlbumPasswordModal = function() {
+        document.getElementById('albumPasswordModal').style.display = 'none';
+        window.currentAlbumForPassword = null;
+      };
 
       // Upload album selection
       uploadAlbumSelect.addEventListener("change", (e) => {
@@ -2906,6 +4132,7 @@ if (modalCloseBtn) {
         createAlbumBtn.addEventListener("click", function() {
           const name = document.getElementById("albumName").value.trim();
           const desc = document.getElementById("albumDesc").value.trim();
+          const password = document.getElementById("albumPassword").value.trim();
 
           if (!name) {
             alert("Vui lòng nhập tên album!");
@@ -2918,7 +4145,7 @@ if (modalCloseBtn) {
               "Content-Type": "application/json",
               'X-Requested-With': 'XMLHttpRequest'
             },
-            body: JSON.stringify({ name, description: desc, csrf: CSRF_TOKEN })
+            body: JSON.stringify({ name, description: desc, password: password || null, csrf: CSRF_TOKEN })
           })
           .then(r => r.json())
           .then(resp => {
@@ -2926,12 +4153,12 @@ if (modalCloseBtn) {
               loadAlbums();
               document.getElementById("albumName").value = "";
               document.getElementById("albumDesc").value = "";
+              document.getElementById("albumPassword").value = "";
             } else {
               alert("Lỗi tạo album: " + resp.error);
             }
           })
           .catch(error => {
-            console.error('Error creating album:', error);
             alert("Lỗi kết nối khi tạo album!");
           });
         });
@@ -2951,44 +4178,63 @@ if (modalCloseBtn) {
         });
       }
 
-      // Tìm kiếm
-      searchInput.addEventListener("input", () => {
-        const query = searchInput.value.toLowerCase();
-
-        if (!query.trim()) {
-          // If search is cleared, reload gallery to show all photos in current album
-          // Preserve current album selection
-          const currentAlbum = albumSelect.value;
-          loadGallery(true); // Skip album reload to prevent timing issues
-          // Ensure album selection is maintained after reload
-          setTimeout(() => {
-            if (currentAlbum && albumSelect.querySelector(`option[value="${currentAlbum}"]`)) {
-              albumSelect.value = currentAlbum;
-            }
-          }, 100);
-          return;
-        }
-
-        // Filter current photos by search query
-        const filteredPhotos = photos.filter(p => {
-          return (p.filename && p.filename.toLowerCase().includes(query)) ||
-                 (document.body.classList.contains("admin") && p.uploader && p.uploader.toLowerCase().includes(query));
-        });
-        renderPhotos(filteredPhotos);
-        updatePhotoCount(filteredPhotos.length);
-      });
-
       // Lọc theo album
       albumSelect.addEventListener("change", () => {
         const albumFilter = albumSelect.value;
+        console.log('🎯 Album select changed to:', albumFilter);
+        console.log('📋 Available albums:', albums);
+        console.log('🔓 Temporarily unlocked albums:', window.temporarilyUnlockedAlbums);
 
+        // Store unlocked albums in session for backend access
+        if (window.temporarilyUnlockedAlbums) {
+          fetch('store_unlocked_albums.php', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({
+              unlocked_albums: window.temporarilyUnlockedAlbums,
+              csrf: CSRF_TOKEN
+            })
+          }).catch(error => {
+            console.log('Failed to store unlocked albums:', error);
+          });
+        }
+
+        // "All Photos" album is always accessible - no password check needed
+        if (albumFilter === 'all') {
+          console.log('📸 Loading all photos');
+          // Reset pagination when changing album
+          resetPagination();
+          // Reload gallery immediately for "All Photos"
+          loadGallery();
+          return;
+        }
+
+        // Check if album is password protected (only for specific albums)
+        if (albumFilter !== '') {
+          const selectedAlbum = albums.find(a => a.id == albumFilter);
+          console.log('🔍 Selected album:', selectedAlbum);
+          if (selectedAlbum && selectedAlbum.password) {
+            console.log('🔒 Album is password protected');
+            // Check if this album is temporarily unlocked in this session
+            if (!window.temporarilyUnlockedAlbums || !window.temporarilyUnlockedAlbums[albumFilter]) {
+              console.log('🚫 Album not unlocked, showing password modal');
+              showAlbumPasswordModal(albumFilter, selectedAlbum.name);
+              return; // Don't load gallery yet
+            } else {
+              console.log('✅ Album is unlocked, proceeding to load gallery');
+            }
+          } else {
+            console.log('🔓 Album is not password protected');
+          }
+        }
+
+        // Reset pagination when changing album
+        resetPagination();
         // Reload gallery when changing album selection to show photos from selected album
-        loadGallery();
-      });
-
-      // Sắp xếp
-      sortSelect.addEventListener("change", () => {
-        // Reload gallery with current album and new sort settings
+        console.log('📥 Loading gallery for album:', albumFilter);
         loadGallery();
       });
 
@@ -3008,6 +4254,106 @@ if (modalCloseBtn) {
       }
       setInterval(checkActivity, 60000);
 
+
+      // Handle album password form submission
+      window.handleAlbumPasswordSubmit = function(e) {
+        e.preventDefault();
+
+        const password = document.getElementById('albumPasswordInput').value;
+        const submitBtn = document.getElementById('albumPasswordSubmitBtn');
+        const errorDiv = document.getElementById('passwordError');
+
+        console.log('🔑 Submitting password for album:', window.currentAlbumForPassword);
+
+        // Disable submit button
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Đang kiểm tra...';
+
+        // Hide previous error
+        errorDiv.style.display = 'none';
+
+        // Send password verification request
+        fetch('albums.php?verify_password=1', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({
+            album_id: window.currentAlbumForPassword,
+            password: password,
+            csrf: CSRF_TOKEN
+          })
+        })
+        .then(response => {
+          // Check if response is ok before parsing JSON
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          if (data.success) {
+            // Password correct - temporarily unlock this album for this session only
+            // Don't store in localStorage - each album requires its own password entry
+            if (!window.temporarilyUnlockedAlbums) {
+              window.temporarilyUnlockedAlbums = {};
+            }
+
+            // Save album ID before hiding modal (which clears it)
+            const unlockedAlbumId = window.currentAlbumForPassword;
+            window.temporarilyUnlockedAlbums[unlockedAlbumId] = true;
+
+            hideAlbumPasswordModal();
+            // Directly switch to the unlocked album without relying on change event
+            console.log('🔓 Album unlocked:', unlockedAlbumId);
+            console.log('📋 Temporarily unlocked albums:', window.temporarilyUnlockedAlbums);
+
+            // Update album select value
+            albumSelect.value = unlockedAlbumId;
+
+            // Directly execute album change logic
+            console.log('🎯 Directly switching to album:', unlockedAlbumId);
+
+            // Reset pagination when changing album
+            resetPagination();
+            // Reload gallery when changing album selection to show photos from selected album
+            console.log('📥 Loading gallery for unlocked album:', unlockedAlbumId);
+            loadGallery();
+          } else {
+            // Password incorrect
+            errorDiv.innerHTML = `
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 9v4" stroke="#ffb4b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 17h.01" stroke="#ffb4b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M10.29 3h3.42l7 12.12A2 2 0 0 1 19.7 19H4.3a2 2 0 0 1-1.01-3.88L10.29 3z" stroke="#ffb4b4" stroke-width="0" fill="rgba(220,38,38,0.14)"/>
+              </svg>
+              <div>Mật khẩu không đúng!</div>
+            `;
+            errorDiv.style.display = 'flex';
+
+            // Add shake animation
+            const form = document.getElementById('albumPasswordForm');
+            form.classList.add('shake');
+            setTimeout(() => form.classList.remove('shake'), 700);
+          }
+        })
+        .catch(error => {
+          errorDiv.innerHTML = `
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 9v4" stroke="#ffb4b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="12" cy="12" r="10" stroke="#ffb4b4" stroke-width="2"/>
+            </svg>
+            <div>Lỗi kết nối. Vui lòng thử lại.</div>
+          `;
+          errorDiv.style.display = 'flex';
+        })
+        .finally(() => {
+          // Re-enable submit button
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Mở Album';
+        });
+      };
 
       // Handle login form submission
       document.getElementById('adminLoginForm').addEventListener('submit', function(e) {
@@ -3043,6 +4389,7 @@ if (modalCloseBtn) {
         .then(data => {
           if (data.success) {
             // Login successful - reload page to show admin interface
+            backupToWayback(); // Auto backup on login
             window.location.reload();
           } else {
             // Login failed
@@ -3073,7 +4420,6 @@ if (modalCloseBtn) {
           }
         })
         .catch(error => {
-          console.error('Login error:', error);
           errorDiv.innerHTML = `
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M12 9v4" stroke="#ffb4b4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -3099,6 +4445,13 @@ if (modalCloseBtn) {
         }
       });
 
+      // Close album password modal when clicking outside
+      document.getElementById('albumPasswordModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+          hideAlbumPasswordModal();
+        }
+      });
+
       // Close modal when clicking outside
       document.getElementById('adminLoginModal').addEventListener('click', function(e) {
         if (e.target === this) {
@@ -3106,36 +4459,147 @@ if (modalCloseBtn) {
         }
       });
 
-      window.updateToggleButton = function() {
-        const toggleBtn = document.getElementById('rightClickToggle');
-        const toggleIcon = document.getElementById('toggleIcon');
-        const toggleText = document.getElementById('toggleText');
+      // Private Gallery Modal Functions
+      function showPrivateGalleryModal() {
+        document.getElementById('privateGalleryModal').style.display = 'flex';
+        document.getElementById('privateGalleryPassword').focus();
+        document.getElementById('privateGalleryError').style.display = 'none';
+      }
 
-        if (rightClickEnabled) {
-          toggleBtn.classList.add('active');
-          toggleIcon.textContent = '✅';
-          toggleText.textContent = 'Right-Click: ON';
+      function closePrivateGalleryModal() {
+        document.getElementById('privateGalleryModal').style.display = 'none';
+        document.getElementById('privateGalleryPassword').value = '';
+      }
+
+      // Make functions globally accessible
+      window.showPrivateGalleryModal = showPrivateGalleryModal;
+      window.closePrivateGalleryModal = closePrivateGalleryModal;
+
+      // Handle private gallery password submission
+      document.getElementById('privateGalleryForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const password = document.getElementById('privateGalleryPassword').value;
+        const errorDiv = document.getElementById('privateGalleryError');
+
+        if (!password.trim()) {
+          errorDiv.textContent = 'Please enter a password';
+          errorDiv.style.display = 'block';
+          return;
+        }
+
+        // Submit password for verification
+        fetch('verify_private_gallery.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ password: password })
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            // Password correct - redirect to private gallery
+            window.location.href = '/admin-gallery.php?access_granted=1';
+          } else {
+            errorDiv.textContent = data.error || 'Invalid password';
+            errorDiv.style.display = 'block';
+
+            // Shake animation
+            const form = document.getElementById('privateGalleryForm');
+            form.classList.add('shake');
+            setTimeout(() => form.classList.remove('shake'), 700);
+          }
+        })
+        .catch(error => {
+          errorDiv.textContent = 'Connection error. Please try again.';
+          errorDiv.style.display = 'block';
+        });
+      });
+
+      // Close private gallery modal when clicking outside
+      document.getElementById('privateGalleryModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+          closePrivateGalleryModal();
+        }
+      });
+
+
+      window.toggleSelectMode = function() {
+        selectModeEnabled = !selectModeEnabled;
+        localStorage.setItem('selectModeEnabled', selectModeEnabled);
+        updateSelectModeButton();
+
+        if (selectModeEnabled) {
+          initSelectMode();
         } else {
-          toggleBtn.classList.remove('active');
-          toggleIcon.textContent = '🚫';
-          toggleText.textContent = 'Right-Click: OFF';
+          updateCheckboxVisibility();
+        }
+
+        // Show feedback
+        const status = selectModeEnabled ? 'enabled' : 'disabled';
+        console.log(`🎯 Select mode has been ${status}`);
+        alert(`Select mode has been ${status}!`);
+      };
+
+      window.deselectAllPhotos = function() {
+        const allCheckboxes = document.querySelectorAll('.select-photo');
+        allCheckboxes.forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        console.log('Deselected all photos');
+      };
+
+      // Add keyboard shortcuts for better accessibility
+      document.addEventListener('keydown', function(e) {
+        // Only handle shortcuts when not typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.contentEditable === 'true') {
+          return;
+        }
+
+        // Ctrl+A or Cmd+A to select all photos (when select mode is on)
+        if ((e.ctrlKey || e.metaKey) && e.key === 'a' && selectModeEnabled) {
+          e.preventDefault();
+          const allCheckboxes = document.querySelectorAll('.select-photo');
+          const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+
+          allCheckboxes.forEach(checkbox => {
+            checkbox.checked = !allChecked;
+          });
+
+          console.log(`${allChecked ? 'Deselected' : 'Selected'} all photos via keyboard`);
+        }
+
+        // Escape key to exit select mode
+        if (e.key === 'Escape' && selectModeEnabled) {
+          toggleSelectMode();
+        }
+      });
+
+      window.updateSelectModeButton = function() {
+        const selectModeBtn = document.getElementById('selectModeToggle');
+        const selectModeIcon = document.getElementById('selectModeIcon');
+        const selectModeText = document.getElementById('selectModeText');
+
+        if (selectModeEnabled) {
+          selectModeBtn.classList.add('active');
+          selectModeIcon.textContent = '☑️';
+          selectModeText.textContent = 'Select Mode: ON';
+        } else {
+          selectModeBtn.classList.remove('active');
+          selectModeIcon.textContent = '👆';
+          selectModeText.textContent = 'Select Mode: OFF';
         }
       };
 
-      window.toggleRightClick = function() {
-        rightClickEnabled = !rightClickEnabled;
-        localStorage.setItem('rightClickEnabled', rightClickEnabled);
-        updateToggleButton();
 
-        // Show feedback
-        const status = rightClickEnabled ? 'enabled' : 'disabled';
-        console.log(`🔧 Right-click for users has been ${status}`);
-        alert(`Right-click for users has been ${status}!`);
-      };
-
-      // Initialize toggle button if admin
+      // Initialize toggle buttons if admin
       if (document.body.classList.contains('admin')) {
-        updateToggleButton();
+        updateSelectModeButton();
+        if (selectModeEnabled) {
+          initSelectMode();
+        }
       }
 
       // Close modal on Escape key
@@ -3145,9 +4609,484 @@ if (modalCloseBtn) {
         }
       });
 
+      // === Select Mode Functionality (Admin Only) ===
 
+      function initSelectMode() {
+        if (!document.body.classList.contains('admin')) {
+          console.log('Select mode disabled: Not in admin mode');
+          return;
+        }
+
+        const gallery = document.getElementById('gallery');
+        if (!gallery) {
+          console.log('Select mode disabled: Gallery element not found');
+          return;
+        }
+
+        console.log('Select mode initialized for admin mode');
+
+        // Update checkbox visibility based on select mode
+        updateCheckboxVisibility();
+
+        // Add touch support for mobile devices
+        if ('ontouchstart' in window) {
+          console.log('Touch device detected - adding touch event listeners for select mode');
+
+          // Add touch feedback for photo cards
+          const photoCards = gallery.querySelectorAll('.photo-card');
+          photoCards.forEach(card => {
+            card.addEventListener('touchstart', function(e) {
+              if (!selectModeEnabled) return;
+              this.style.transform = 'scale(0.98)';
+              this.style.transition = 'transform 0.1s ease';
+            }, { passive: true });
+
+            card.addEventListener('touchend', function(e) {
+              if (!selectModeEnabled) return;
+              this.style.transform = '';
+              this.style.transition = 'transform 0.1s ease';
+            }, { passive: true });
+          });
+        }
+      }
+
+      function updateCheckboxVisibility() {
+        const checkboxes = document.querySelectorAll('.select-photo');
+        const deselectBtn = document.getElementById('deselectAllBtn');
+
+        checkboxes.forEach(checkbox => {
+          if (selectModeEnabled) {
+            checkbox.style.display = 'block';
+          } else {
+            checkbox.style.display = 'none';
+          }
+        });
+
+        if (deselectBtn) {
+          deselectBtn.style.display = selectModeEnabled ? 'inline-block' : 'none';
+        }
+      }
+
+      // === Optimized Lazy Loading ===
+      function initAdvancedLazyLoading() {
+        // Use native lazy loading when available (much better performance)
+        if ('loading' in HTMLImageElement.prototype) {
+          console.log('Using native lazy loading');
+          return; // Native lazy loading is already applied via img.loading = "lazy"
+        }
+
+        // Fallback Intersection Observer for older browsers
+        if ('IntersectionObserver' in window) {
+          const imageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+              if (entry.isIntersecting) {
+                const img = entry.target;
+                const src = img.dataset.src;
+
+                if (src && !img.classList.contains('loaded')) {
+                  // Check if image exists before loading
+                  const tempImg = new Image();
+                  const timeout = setTimeout(() => {
+                    console.warn('Lazy load timeout for:', src);
+                    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjQ0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+                    observer.unobserve(img);
+                  }, 3000);
+
+                  tempImg.onload = () => {
+                    clearTimeout(timeout);
+                    img.src = src;
+                    img.classList.add('loaded');
+                    img.classList.remove('lazy-image');
+                    img.style.filter = 'none';
+                    observer.unobserve(img);
+                  };
+
+                  tempImg.onerror = () => {
+                    clearTimeout(timeout);
+                    console.warn('Failed to lazy load image:', src);
+                    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjQ0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+                    observer.unobserve(img);
+                  };
+
+                  tempImg.src = src;
+                }
+              }
+            });
+          }, {
+            rootMargin: '200px 0px', // Increased for earlier loading
+            threshold: 0.1 // Higher threshold for more reliable detection
+          });
+
+          // Apply to lazy images only
+          document.querySelectorAll('img[data-src]').forEach(img => {
+            imageObserver.observe(img);
+          });
+
+          console.log('Intersection Observer lazy loading initialized');
+        } else {
+          // Minimal fallback
+          console.log('Using minimal lazy loading fallback');
+          loadImagesOnScroll();
+        }
+      }
+
+      function loadImagesOnScroll() {
+        // Optimized scroll-based lazy loading with throttling
+        let scrollTimeout;
+        const viewportHeight = window.innerHeight;
+
+        function loadVisibleImages() {
+          // Throttle scroll events
+          if (scrollTimeout) return;
+
+          scrollTimeout = setTimeout(() => {
+            const images = document.querySelectorAll('img[data-src]');
+            images.forEach(img => {
+              if (img.dataset.src && !img.classList.contains('loaded')) {
+                const rect = img.getBoundingClientRect();
+                if (rect.top < viewportHeight + 50 && rect.bottom > -50) {
+                  // Check if image exists before loading
+                  const tempImg = new Image();
+                  const timeout = setTimeout(() => {
+                    console.warn('Scroll load timeout for:', img.dataset.src);
+                    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjQ0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+                  }, 2000);
+
+                  tempImg.onload = () => {
+                    clearTimeout(timeout);
+                    img.src = img.dataset.src;
+                    img.classList.add('loaded');
+                    img.style.filter = 'none';
+                  };
+
+                  tempImg.onerror = () => {
+                    clearTimeout(timeout);
+                    console.warn('Failed to scroll load image:', img.dataset.src);
+                    img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjQ0Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiM5OTkiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5FcnJvcjwvdGV4dD48L3N2Zz4=';
+                  };
+
+                  tempImg.src = img.dataset.src;
+                }
+              }
+            });
+            scrollTimeout = null;
+          }, 16); // ~60fps
+        }
+
+        // Use passive listeners for better performance
+        window.addEventListener('scroll', loadVisibleImages, { passive: true });
+        window.addEventListener('resize', loadVisibleImages, { passive: true });
+
+        // Load initially visible images
+        loadVisibleImages();
+      }
+
+      // === Swipe Controls for Mobile Devices ===
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchEndX = 0;
+      let touchEndY = 0;
+
+      function initSwipeControls() {
+        const modal = document.getElementById('modal');
+        if (!modal) {
+          console.log('Swipe controls disabled: Modal element not found');
+          return;
+        }
+
+        console.log('Swipe controls initialized for mobile devices');
+
+        // Add touch event listeners to the modal content area (not just modal background)
+        const modalContent = modal.querySelector('div');
+        if (modalContent) {
+          modalContent.addEventListener('touchstart', function(e) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            console.log('Touch start detected:', touchStartX, touchStartY);
+          }, { passive: false });
+
+          modalContent.addEventListener('touchend', function(e) {
+            touchEndX = e.changedTouches[0].clientX;
+            touchEndY = e.changedTouches[0].clientY;
+            console.log('Touch end detected:', touchEndX, touchEndY);
+            handleSwipe();
+          }, { passive: false });
+        }
+
+        // Also add to the image container for better touch detection
+        const imageContainer = modal.querySelector('div > div:last-child');
+        if (imageContainer) {
+          imageContainer.addEventListener('touchstart', function(e) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+          }, { passive: false });
+
+          imageContainer.addEventListener('touchend', function(e) {
+            touchEndX = e.changedTouches[0].clientX;
+            touchEndY = e.changedTouches[0].clientY;
+            handleSwipe();
+          }, { passive: false });
+        }
+      }
+
+      function handleSwipe() {
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = touchEndY - touchStartY;
+        const absDeltaX = Math.abs(deltaX);
+        const absDeltaY = Math.abs(deltaY);
+
+        console.log('Swipe detected - Delta X:', deltaX, 'Delta Y:', deltaY);
+
+        // Only handle horizontal swipes with minimal vertical movement
+        if (absDeltaX > 30 && absDeltaY < 50) {  // Reduced threshold for easier swiping
+          if (deltaX > 0) {
+            // Swipe right - previous photo
+            console.log('Swipe right - going to previous photo');
+            navigatePhoto('prev');
+          } else {
+            // Swipe left - next photo
+            console.log('Swipe left - going to next photo');
+            navigatePhoto('next');
+          }
+        } else {
+          console.log('Swipe not recognized as horizontal - X:', absDeltaX, 'Y:', absDeltaY);
+        }
+      }
+
+
+      // Initialize new features
+      console.log('Initializing device-compatible features...');
+
+      // Detect device capabilities
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isMobile = window.innerWidth <= 768;
+      const isSmallScreen = window.innerWidth <= 480;
+
+      console.log('Device detection:', {
+        touch: isTouchDevice,
+        mobile: isMobile,
+        smallScreen: isSmallScreen,
+        screenSize: `${window.innerWidth}x${window.innerHeight}`
+      });
+
+      // Initialize header toggle functionality
+      console.log('Initializing header toggle functionality');
+
+      // Set single column layout for mobile devices
+      if (isMobile) {
+        const gallery = document.getElementById('gallery');
+        if (gallery) {
+          gallery.style.gridTemplateColumns = '1fr';
+          console.log('Mobile device detected - setting single column layout');
+        }
+      }
+
+      initSwipeControls();
+    
+      // Add viewport meta tag for better mobile experience if not present
+      if (!document.querySelector('meta[name="viewport"]')) {
+        const viewport = document.createElement('meta');
+        viewport.name = 'viewport';
+        viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+        document.head.appendChild(viewport);
+      }
+    
+      // Initialize advanced lazy loading with Intersection Observer
+      initAdvancedLazyLoading();
+    
+      // Initialize performance monitoring
+      initPerformanceMonitoring();
+    
+      console.log('Device-compatible features initialized');
+    
       loadGallery();
+
+      // Auto daily backup for admin
+      if (document.body.classList.contains('admin')) {
+        const lastBackup = localStorage.getItem('lastWaybackBackup');
+        const now = Date.now();
+        const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+        if (!lastBackup || (now - parseInt(lastBackup)) > oneDay) {
+          console.log('Auto daily backup to Wayback Machine');
+          backupToWayback();
+          localStorage.setItem('lastWaybackBackup', now.toString());
+        }
+      }
+
+   // Performance monitoring functions
+    function initPerformanceMonitoring() {
+      // Track Core Web Vitals
+      if ('web-vitals' in window) {
+        // If web-vitals library is loaded, use it
+        webVitals.getLCP(sendToAnalytics);
+        webVitals.getFID(sendToAnalytics);
+        webVitals.getCLS(sendToAnalytics);
+        webVitals.getFCP(sendToAnalytics);
+        webVitals.getTTFB(sendToAnalytics);
+      } else {
+        // Fallback implementation
+        trackCoreWebVitals();
+      }
+    
+      // Track custom performance metrics
+      trackCustomMetrics();
+    }
+    
+    function sendToAnalytics(metric) {
+      const data = {
+        name: metric.name,
+        value: metric.value,
+        metadata: {
+          rating: metric.rating,
+          delta: metric.delta,
+          id: metric.id
+        }
+      };
+    
+      // Send to server
+      fetch('performance_monitor.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ performance_data: [data] })
+      }).catch(error => {
+        console.log('Failed to send performance data:', error);
+      });
+    }
+    
+    function trackCoreWebVitals() {
+      // Fallback Core Web Vitals tracking
+      let lcpValue = 0;
+      let clsValue = 0;
+      let fidValue = 0;
+    
+      // Track LCP (Largest Contentful Paint)
+      new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        const lastEntry = entries[entries.length - 1];
+        lcpValue = lastEntry.startTime;
+        sendToAnalytics({
+          name: 'LCP',
+          value: lcpValue,
+          rating: lcpValue <= 2500 ? 'good' : lcpValue <= 4000 ? 'needs-improvement' : 'poor'
+        });
+      }).observe({ entryTypes: ['largest-contentful-paint'] });
+    
+      // Track CLS (Cumulative Layout Shift)
+      new PerformanceObserver((list) => {
+        let clsValue = 0;
+        for (const entry of list.getEntries()) {
+          if (!entry.hadRecentInput) {
+            clsValue += entry.value;
+          }
+        }
+        sendToAnalytics({
+          name: 'CLS',
+          value: clsValue,
+          rating: clsValue <= 0.1 ? 'good' : clsValue <= 0.25 ? 'needs-improvement' : 'poor'
+        });
+      }).observe({ entryTypes: ['layout-shift'] });
+    
+      // Track FID (First Input Delay)
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          fidValue = entry.processingStart - entry.startTime;
+          sendToAnalytics({
+            name: 'FID',
+            value: fidValue,
+            rating: fidValue <= 100 ? 'good' : fidValue <= 300 ? 'needs-improvement' : 'poor'
+          });
+        }
+      }).observe({ entryTypes: ['first-input'] });
+    
+      // Track FCP (First Contentful Paint)
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          sendToAnalytics({
+            name: 'FCP',
+            value: entry.startTime,
+            rating: entry.startTime <= 1800 ? 'good' : entry.startTime <= 3000 ? 'needs-improvement' : 'poor'
+          });
+        }
+      }).observe({ entryTypes: ['paint'] });
+    }
+    
+    function trackCustomMetrics() {
+      // Track image loading performance
+      const images = document.querySelectorAll('img');
+      images.forEach(img => {
+        img.addEventListener('load', function() {
+          const loadTime = performance.now() - (img.dataset.loadStart || 0);
+          if (loadTime > 0) {
+            sendToAnalytics({
+              name: 'ImageLoadTime',
+              value: loadTime,
+              metadata: {
+                src: img.src,
+                size: img.naturalWidth + 'x' + img.naturalHeight
+              }
+            });
+          }
+        });
+    
+        img.addEventListener('error', function() {
+          sendToAnalytics({
+            name: 'ImageLoadError',
+            value: 1,
+            metadata: {
+              src: img.src
+            }
+          });
+        });
+    
+        // Mark load start time
+        if (img.src) {
+          img.dataset.loadStart = performance.now();
+        }
+      });
+    
+      // Track page load metrics
+      window.addEventListener('load', function() {
+        setTimeout(() => {
+          const perfData = performance.getEntriesByType('navigation')[0];
+          if (perfData) {
+            sendToAnalytics({
+              name: 'TimeToFirstByte',
+              value: perfData.responseStart - perfData.requestStart
+            });
+    
+            sendToAnalytics({
+              name: 'DOMContentLoaded',
+              value: perfData.domContentLoadedEventEnd - perfData.domContentLoadedEventStart
+            });
+    
+            sendToAnalytics({
+              name: 'PageLoadComplete',
+              value: perfData.loadEventEnd - perfData.loadEventStart
+            });
+          }
+        }, 0);
+      });
+    
+      // Track gallery loading performance
+      window.trackGalleryLoad = function(photoCount, loadTime) {
+        sendToAnalytics({
+          name: 'GalleryLoadTime',
+          value: loadTime,
+          metadata: {
+            photoCount: photoCount
+          }
+        });
+      };
+    }
     });
+
+    // Log script performance summary
+    const scriptEndTime = performance.now();
+    console.log('🏁 Script fully loaded and initialized at:', scriptEndTime);
+    console.log('⏱️ Total script execution time:', (scriptEndTime - scriptStartTime).toFixed(2), 'ms');
 
   </script>
 </body>

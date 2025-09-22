@@ -1,110 +1,284 @@
-# 📸 Photo Gallery - Hostinger Deployment Guide
+# 📸 Khanh's Photo Gallery
 
-## 🚀 Quick Deploy to Hostinger
+A modern, secure, and feature-rich photo gallery web application with admin controls, private memories vault, and multimedia support.
 
-### Step 1: Upload Files
-1. **Upload all files** from the `9thg9/` folder to your Hostinger public_html directory
-2. **Set proper permissions**:
+## 🌟 Features
+
+### 🎨 **Core Features**
+- **Responsive Gallery**: Beautiful grid layout that works on all devices
+- **Image & Video Support**: Upload and view photos (JPEG, PNG, GIF, WebP) and videos (MP4, AVI, MOV, WebM)
+- **Modal Viewer**: Full-screen image/video viewer with navigation
+- **Lazy Loading**: Optimized performance with lazy-loaded images
+- **Search & Filter**: Filter photos by album (for regular users)
+- **Admin Panel**: Complete administrative control
+
+### 🔐 **Security & Privacy**
+- **Admin Authentication**: Secure login system with rate limiting
+- **Private Memories**: Completely separate vault for personal photos/videos
+- **Session Management**: Automatic logout and activity monitoring
+- **File Validation**: Strict upload validation and size limits
+- **Access Control**: Admin-only features and private content
+
+### 👥 **User Types**
+
+#### Regular Users
+- Browse public photos in albums
+- View images/videos in full-screen modal
+- Rate and comment on photos
+- Download images (admin permission required)
+
+#### Administrators
+- All regular user permissions
+- Upload photos/videos to albums
+- Create and manage albums
+- Delete photos/videos
+- Access private memories vault
+- View analytics and logs
+- Manage user feedback
+
+## 🚀 Quick Start
+
+### Prerequisites
+- PHP 7.4+ with GD extension
+- MySQL/MariaDB (optional - file-based fallback available)
+- Web server (Apache/Nginx) or PHP built-in server
+
+### Installation
+
+1. **Clone/Download** the project files to your web server directory
+
+2. **Configure Database** (Optional - skip for file-based mode):
    ```bash
-   chmod 755 uploads/
-   chmod 755 uploads/thumbs/
-   chmod 755 cache/
-   chmod 755 logs/
+   # Run the database setup
+   php setup_database.php
    ```
 
-### Step 2: Database Setup
-Your database is already configured in `config.php`:
-- **Host**: Your ip MySQL 
-- **Database**: your database
-- **Username**: Usernam
-- **Password**: Password 
+3. **Set Admin Credentials**:
+   ```bash
+   php setup_admin_credentials.php
+   ```
 
-### Step 3: Upload Images
-1. **Create albums** by placing images in subfolders within `uploads/`
-2. **Upload images** via FTP or Hostinger File Manager
-3. **Generate thumbnails** by accessing: `yoursite.com/regenerate_thumbs.php`
+4. **Start the Server**:
+   ```bash
+   # Using PHP built-in server
+   php -S localhost:8000
 
-### Step 4: Access Your Gallery
+   # Or configure Apache/Nginx to serve the directory
+   ```
+
+5. **Access the Gallery**:
+   - Open `http://localhost:8000` in your browser
+   - Login as admin using your configured credentials
+
+## 📖 User Guide
+
+### 🖼️ **Browsing the Gallery**
+
+#### For Regular Users:
+1. **View Photos**: Click any photo thumbnail to open in full-screen
+2. **Navigate**: Use arrow keys or click navigation buttons
+3. **Albums**: Select different albums from the dropdown
+4. **Rate Photos**: Click stars to rate photos (1-5 stars)
+5. **Leave Comments**: Add feedback in the comment box
+
+#### Keyboard Shortcuts:
+- `←` `→` - Navigate between photos
+- `Escape` - Close modal
+- `Ctrl+A` (admin) - Select all photos
+
+### 👑 **Admin Features**
+
+#### Accessing Admin Mode:
+1. Click **"🔒 Đăng nhập"** (Login) button
+2. Enter admin credentials
+3. Failed attempts are limited (3 max, then temporary lockout)
+
+#### Photo Management:
+- **Upload**: Click **"⬆️ Upload"** to add photos/videos
+- **Select Mode**: Click **"👆 Select Mode: OFF"** to enable bulk selection
+- **Delete**: Select photos and click **"🗑️ Xóa"** (Delete)
+- **Move**: Move selected photos between albums
+
+#### Album Management:
+- **Create Albums**: Click **"📁 Quản lý"** (Manage) to create new albums
+- **Password Protection**: Add passwords to make albums private
+- **Album Stats**: View photo counts per album
+
+#### Private Memories Vault:
+- **Access**: Click **"💝 Private Memories"** button (admin only)
+- **Upload**: Add personal photos/videos that no one else can see
+- **Secure Storage**: Completely separate from public gallery
+
+### 🎥 **Video Support**
+
+- **Upload Videos**: Select video files along with photos
+- **Video Playback**: Click video thumbnails to play with controls
+- **Supported Formats**: MP4, AVI, MOV, QuickTime, WebM
+- **Size Limits**: 100MB for videos, 10MB for photos
+
+## 🏗️ **Technical Architecture**
+
+### 📁 **File Structure**
 ```
-🌐 https://yourdomain.com/
+/
+├── index.php              # Main gallery page
+├── admin-gallery.php      # Private memories vault
+├── albums.php             # Album management API
+├── list.php               # Photo listing API
+├── upload.php             # File upload handler
+├── delete.php             # Delete photos API
+├── feedback.php           # User feedback system
+├── private_memories_handler.php  # Private vault API
+├── config.php             # Configuration and database setup
+├── style.css              # Main stylesheet
+├── secret-page.js         # Frontend JavaScript
+├── private_memories/      # Private vault storage
+│   ├── originals/         # Full-size private files
+│   ├── thumbs/           # Private thumbnails
+│   └── memories.json     # Private metadata
+├── uploads/               # Public photo storage
+├── data/                  # Analytics and logs
+└── cache/                 # Performance cache
 ```
 
-## 📋 Features Included
+### 🔌 **API Endpoints**
 
-✅ **Responsive Photo Grid** - Works on all devices
-✅ **Advanced Photo Viewer** - Zoom, pan, fullscreen
-✅ **Mobile Gestures** - Swipe navigation, pinch zoom
-✅ **Search Functionality** - Find photos quickly
-✅ **Theme Toggle** - Light/dark mode
-✅ **Infinite Scroll** - Smooth loading
-✅ **Album Organization** - Group photos by albums
-✅ **Admin Features** - Upload, manage, delete photos
+#### Public Endpoints:
+- `GET /` - Main gallery
+- `GET /list.php` - Get photos by album
+- `POST /feedback.php` - Submit photo ratings/comments
 
-## 🔧 File Structure
+#### Admin Endpoints:
+- `POST /upload.php` - Upload photos/videos
+- `POST /delete.php` - Delete photos
+- `GET/POST /albums.php` - Album management
+- `GET /admin-gallery.php` - Private memories vault
+- `POST /private_memories_handler.php` - Private vault operations
 
+#### Authentication:
+- `POST /index.php?admin_login_ajax=1` - Admin login
+- `GET /admin_logout` - Admin logout
+
+### 🗄️ **Database Schema** (Optional)
+
+#### Photos Table:
+```sql
+CREATE TABLE photos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    filename VARCHAR(255) NOT NULL,
+    album_id INT,
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    uploader VARCHAR(100),
+    ip_address VARCHAR(45),
+    file_size INT,
+    metadata TEXT
+);
 ```
-9thg9/
-├── index.php          # Main gallery page
-├── list.php           # API for photo data
-├── upload.php         # Image upload handler
-├── config.php         # Database configuration
-├── album_manager.php  # Album management
-├── photo_actions.php  # Photo actions (select, favorite, etc.)
-├── regenerate_thumbs.php # Thumbnail generator
-├── uploads/           # Original images
-├── uploads/thumbs/    # Generated thumbnails
-├── cache/            # Cached data
-├── logs/             # Log files
-└── .htaccess         # URL rewriting & security
+
+#### Albums Table:
+```sql
+CREATE TABLE albums (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    password VARCHAR(255), -- NULL for public albums
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-## 🎨 Customization
+### 🔒 **Security Features**
 
-### Change Gallery Title
-Edit `index.php` line 83:
+- **Session-based authentication** with automatic expiration
+- **CSRF protection** on all forms
+- **Rate limiting** on login attempts
+- **File type validation** and size limits
+- **SQL injection prevention** with prepared statements
+- **XSS protection** with input sanitization
+- **Private file storage** outside web root for sensitive data
+
+### 📊 **Analytics & Monitoring**
+
+- **Visitor tracking** (non-admin users only)
+- **Performance monitoring** (Core Web Vitals)
+- **Admin activity logs**
+- **Feedback statistics**
+- **Cache performance metrics**
+
+## 🛠️ **Configuration**
+
+### config.php
 ```php
-<title>📸 Your Gallery Name</title>
+// Database settings (optional)
+define('DB_HOST', 'localhost');
+define('DB_USER', 'your_username');
+define('DB_PASS', 'your_password');
+define('DB_NAME', 'photo_gallery');
+
+// File size limits
+define('MAX_IMAGE_SIZE', 10 * 1024 * 1024); // 10MB
+define('MAX_VIDEO_SIZE', 100 * 1024 * 1024); // 100MB
+
+// Admin credentials
+define('ADMIN_USER', 'your_username');
+define('ADMIN_PASS', 'your_password');
 ```
 
-### Modify Database Settings
-Edit `config.php`:
-```php
-$DB_HOST = "your_hostinger_mysql_host";
-$DB_USER = "your_mysql_username";
-$DB_PASS = "your_mysql_password";
-$DB_NAME = "your_database_name";
-```
+### Environment Variables
+- `DB_AVAILABLE` - Set to false to use file-based storage
+- `CSRF_TOKEN` - Auto-generated for form security
 
-### Add More Images
-1. Upload images to `uploads/` folder
-2. Access `regenerate_thumbs.php` to create thumbnails
-3. Images will automatically appear in gallery
+## 🔧 **Troubleshooting**
 
-## 🛠️ Troubleshooting
+### Common Issues:
 
-### Gallery Not Loading
-- Check file permissions (755 for folders, 644 for files)
-- Verify database connection in `config.php`
-- Check Hostinger PHP version (7.4+ required)
+#### "Class 'mysqli' not found"
+- Install PHP MySQL extension: `sudo apt install php-mysql`
+- Or use file-based mode by setting `DB_AVAILABLE = false`
 
-### Images Not Showing
-- Ensure images are in `uploads/` folder
-- Run `regenerate_thumbs.php` to create thumbnails
-- Check file permissions on uploads folder
+#### Upload fails
+- Check file permissions on `uploads/` and `private_memories/` directories
+- Verify PHP upload limits in `php.ini`
+- Check file size limits in `config.php`
 
-### Database Errors
-- Verify database credentials in `config.php`
-- Check if database tables exist
-- Run `setup.sql` if needed
+#### Admin login not working
+- Run `php setup_admin_credentials.php` to set credentials
+- Check session save path permissions
+- Clear browser cookies if issues persist
 
-## 📞 Support
+#### Videos not playing
+- Ensure videos are in supported formats (MP4, WebM recommended)
+- Check browser video codec support
+- Verify file uploaded completely
 
-If you encounter issues:
-1. Check Hostinger error logs
-2. Verify file permissions
-3. Test database connection
-4. Clear cache: delete files in `cache/` folder
+### Performance Optimization:
+- Enable PHP OPcache
+- Use a CDN for static assets
+- Configure proper caching headers
+- Monitor Core Web Vitals in browser dev tools
+
+## 📝 **Development**
+
+### Adding New Features:
+1. Follow the existing file structure
+2. Use prepared statements for database queries
+3. Implement CSRF protection on forms
+4. Add proper error handling
+5. Test on multiple devices/browsers
+
+### Code Style:
+- PHP: PSR-12 standards
+- JavaScript: Modern ES6+ with error handling
+- CSS: Mobile-first responsive design
+- HTML: Semantic markup with accessibility
+
+## 📄 **License**
+
+This project is private and proprietary. All rights reserved.
+
+## 👨‍💻 **Support**
+
+For technical issues or feature requests, check the error logs in `data/` directory and verify configuration in `config.php`.
 
 ---
 
-**🎉 Your photo gallery is ready! Upload some images and enjoy your beautiful photo collection!**
+**Built with ❤️ for personal photo management and sharing**

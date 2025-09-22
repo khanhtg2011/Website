@@ -37,18 +37,6 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Create photo_feedback table
-CREATE TABLE IF NOT EXISTS photo_feedback (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    photo_filename VARCHAR(255) NOT NULL,
-    rating TINYINT NOT NULL CHECK (rating >= 1 AND rating <= 5),
-    comment TEXT,
-    user_ip VARCHAR(45),
-    user_agent TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_photo_filename (photo_filename),
-    INDEX idx_created_at (created_at)
-);
 
 -- 7. Insert default admin user
 -- Note: Password is hashed using PHP's password_hash()

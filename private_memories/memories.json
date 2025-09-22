@@ -1,0 +1,68 @@
+[
+  {
+    "id": "mem_test_001",
+    "filename": "sample_memory_1.jpg",
+    "original_filename": "sample_memory_1.jpg",
+    "uploaded_at": "2025-09-21 13:00:00",
+    "uploader": "admin",
+    "ip_address": "127.0.0.1",
+    "file_size": 245760,
+    "mime_type": "image/jpeg",
+    "width": 1200,
+    "height": 800,
+    "media_type": "image",
+    "thumb": "private_memories/thumbs/sample_memory_1.jpg",
+    "metadata": {
+      "EXIF": {
+        "Make": "Test Camera",
+        "Model": "Test Model",
+        "DateTimeOriginal": "2025:09:21 12:00:00",
+        "FNumber": "f/2.8",
+        "ISOSpeedRatings": 100,
+        "FocalLength": "50mm"
+      }
+    },
+    "created_at": "2025-09-21 13:00:00"
+  },
+  {
+    "id": "mem_test_002",
+    "filename": "sample_memory_2.jpg",
+    "original_filename": "sample_memory_2.jpg",
+    "uploaded_at": "2025-09-21 13:05:00",
+    "uploader": "admin",
+    "ip_address": "127.0.0.1",
+    "file_size": 312000,
+    "mime_type": "image/jpeg",
+    "width": 1600,
+    "height": 1200,
+    "media_type": "image",
+    "thumb": "private_memories/thumbs/sample_memory_2.jpg",
+    "metadata": {
+      "EXIF": {
+        "Make": "Another Camera",
+        "Model": "Pro Model",
+        "DateTimeOriginal": "2025:09:21 12:30:00",
+        "FNumber": "f/4.0",
+        "ISOSpeedRatings": 200,
+        "FocalLength": "85mm"
+      }
+    },
+    "created_at": "2025-09-21 13:05:00"
+  },
+  {
+    "id": "mem_test_003",
+    "filename": "sample_video.mp4",
+    "original_filename": "sample_video.mp4",
+    "uploaded_at": "2025-09-21 13:10:00",
+    "uploader": "admin",
+    "ip_address": "127.0.0.1",
+    "file_size": 5242880,
+    "mime_type": "video/mp4",
+    "width": 1920,
+    "height": 1080,
+    "media_type": "video",
+    "thumb": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGMzNTQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTAsMTIwIDI4MCwyMDAgMTUwLDI4MCIgZmlsbD0id2hpdGUiLz48dGV4dCB4PSIyMDAiIHk9IjM1MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiIGZvbnQtc2l6ZT0iMjQiPkJJR0hUSU5FPC90ZXh0Pjwvc3ZnPg==",
+    "metadata": {},
+    "created_at": "2025-09-21 13:10:00"
+  }
+]

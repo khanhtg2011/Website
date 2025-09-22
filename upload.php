@@ -51,17 +51,29 @@ if (!move_uploaded_file($_FILES['file']['tmp_name'], $targetFile)) {
     exit;
 }
 
-// Create thumbnail with proper sizing for the gallery layout
-// The gallery uses height: 200px with object-fit: cover, so we create thumbnails
-// that are 400px wide by 200px tall to ensure proper aspect ratio coverage
+// Include image optimizer
+require_once __DIR__ . "/image_optimizer.php";
+
+// Optimize image with multiple formats and sizes
+$optimizationResults = ImageOptimizer::optimizeImage($targetFile, $uploadDir, $filename, true);
+
+// Create traditional thumbnail for backward compatibility
 $thumbFile = $thumbDir . $filename;
 if (!createThumbnail($targetFile, $thumbFile, 400, 200)) {
     // If thumbnail creation fails, copy original as thumbnail
     copy($targetFile, $thumbFile);
 }
 
+// Generate blur placeholder for better perceived performance
+$blurPlaceholder = ImageOptimizer::generateBlurPlaceholder($targetFile);
+
 // Extract metadata
 $metadata = extractMetadata($targetFile);
+
+// Add optimization results to metadata
+$metadata['optimization'] = $optimizationResults;
+$metadata['blur_placeholder'] = $blurPlaceholder;
+$metadata['optimized_sizes'] = array_keys($optimizationResults['sizes_generated'] ?? []);
 
 // Save metadata to JSON
 file_put_contents($targetFile . ".json", json_encode($metadata));

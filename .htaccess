@@ -1,24 +1,3 @@
-# Image optimization and caching headers
-<IfModule mod_expires.c>
-    ExpiresActive On
-
-    # Images - cache for 1 month
-    ExpiresByType image/jpg "access plus 1 month"
-    ExpiresByType image/jpeg "access plus 1 month"
-    ExpiresByType image/gif "access plus 1 month"
-    ExpiresByType image/png "access plus 1 month"
-    ExpiresByType image/webp "access plus 1 month"
-    ExpiresByType image/svg+xml "access plus 1 month"
-
-    # CSS and JavaScript - cache for 1 week
-    ExpiresByType text/css "access plus 1 week"
-    ExpiresByType application/javascript "access plus 1 week"
-    ExpiresByType text/javascript "access plus 1 week"
-
-    # HTML - cache for 1 hour
-    ExpiresByType text/html "access plus 1 hour"
-</IfModule>
-
 # Enable compression
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/plain
@@ -30,47 +9,75 @@
     AddOutputFilterByType DEFLATE application/rss+xml
     AddOutputFilterByType DEFLATE application/javascript
     AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/json
+    AddOutputFilterByType DEFLATE image/svg+xml
 </IfModule>
 
-# Enable browser caching for images
+# Leverage browser caching
+<IfModule mod_expires.c>
+    ExpiresActive on
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType application/pdf "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType application/x-javascript "access plus 1 month"
+    ExpiresByType application/x-shockwave-flash "access plus 1 month"
+    ExpiresByType image/x-icon "access plus 1 year"
+    ExpiresDefault "access plus 2 days"
+</IfModule>
+
+# Security headers
 <IfModule mod_headers.c>
+    Header always set X-Frame-Options DENY
+    Header always set X-Content-Type-Options nosniff
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Performance headers for images
     <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg)$">
-        Header set Cache-Control "max-age=2592000, public"
+        Header set Cache-Control "public, max-age=31536000, immutable"
+        Header set X-Content-Type-Options nosniff
+    </FilesMatch>
+
+    # Enable gzip compression for images (if supported)
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg)$">
+        Header append Vary Accept-Encoding
+    </FilesMatch>
+
+    # HTTP/2 Server Push for critical resources
+    <FilesMatch "favicon\.png$">
+        Header add Link "</style.css>; rel=preload; as=style"
+        Header add Link "</sw.js>; rel=preload; as=script"
     </FilesMatch>
 </IfModule>
 
-# Optimize image delivery
+# HTTP/2 Server Push for critical images (first gallery images)
+<IfModule mod_http2.c>
+    # Push first few images (will be handled by PHP for dynamic content)
+    # Note: style.css and sw.js are loaded immediately, so preload is not needed
+</IfModule>
+
+# URL rewriting for clean URLs
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^admin_logout$ admin_logout.php [L]
-    # Remove query strings from static resources
-    RewriteCond %{QUERY_STRING} !=""
-    RewriteCond %{REQUEST_URI} \.(jpg|jpeg|png|gif|webp|svg|css|js)$ [NC]
-    RewriteRule ^(.*)$ $1? [R=301,L]
+
+    # Handle PHP files directly
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
 </IfModule>
-# DO NOT REMOVE THIS LINE AND THE LINES BELOW ERRORPAGEID:hu9TOgjfWm
-ErrorDocument 400 /400.html
-# DO NOT REMOVE THIS LINE AND THE LINES ABOVE hu9TOgjfWm:ERRORPAGEID
 
+# Prevent access to sensitive files
+<Files "config.php">
+    Order allow,deny
+    Deny from all
+</Files>
 
-
-
-# DO NOT REMOVE THIS LINE AND THE LINES BELOW ERRORPAGEID:poYfYtg1EY
-ErrorDocument 401 /401.html
-# DO NOT REMOVE THIS LINE AND THE LINES ABOVE poYfYtg1EY:ERRORPAGEID
-
-
-# DO NOT REMOVE THIS LINE AND THE LINES BELOW ERRORPAGEID:B99v4DV5LE
-ErrorDocument 403 /403.html
-# DO NOT REMOVE THIS LINE AND THE LINES ABOVE B99v4DV5LE:ERRORPAGEID
-
-
-# DO NOT REMOVE THIS LINE AND THE LINES BELOW ERRORPAGEID:Y12XdaIrZg
-ErrorDocument 404 /404.html
-# DO NOT REMOVE THIS LINE AND THE LINES ABOVE Y12XdaIrZg:ERRORPAGEID
-
-
-# DO NOT REMOVE THIS LINE AND THE LINES BELOW ERRORPAGEID:0e4TVfyuYH
-ErrorDocument 500 /500.html
-# DO NOT REMOVE THIS LINE AND THE LINES ABOVE 0e4TVfyuYH:ERRORPAGEID
-
+<Files "*.log">
+    Order allow,deny
+    Deny from all
+</Files>
