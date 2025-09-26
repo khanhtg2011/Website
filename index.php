@@ -790,27 +790,6 @@ header { position: sticky; top: 0; z-index: 10;
       box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
     }
 
-    /* Header toggle button */
-    .header-toggle-btn {
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: all 0.2s;
-      margin-left: 10px;
-    }
-    .header-toggle-btn:hover {
-      background: rgba(255, 255, 255, 0.3);
-    }
-    .header-toggle-btn.hidden {
-      background: linear-gradient(135deg, #f44336, #d32f2f);
-    }
-    .header-toggle-btn.hidden:hover {
-      background: linear-gradient(135deg, #d32f2f, #b71c1c);
-    }
     .header-main h1 { margin: 0; font-size: 22px; font-weight: 700; }
 
     .album-navigation { display: flex; align-items: center; gap: 16px;
@@ -924,7 +903,7 @@ header { position: sticky; top: 0; z-index: 10;
     }
     @media (max-width: 767px) {
       main { padding: 0 18px; }
-      #gallery { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+      #gallery { grid-template-columns: 1fr; }
       .photo-card { height: 160px; max-width: 100%; }
       .photo-card img { height: 160px; }
       header { flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -4869,8 +4848,6 @@ if (modalCloseBtn) {
         screenSize: `${window.innerWidth}x${window.innerHeight}`
       });
 
-      // Initialize header toggle functionality
-      console.log('Initializing header toggle functionality');
 
       // Set single column layout for mobile devices
       if (isMobile) {
